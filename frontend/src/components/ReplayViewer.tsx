@@ -7,6 +7,7 @@ import Leaderboard from './Leaderboard';
 import PlaybackControls from './PlaybackControls';
 import SessionInfo from './SessionInfo';
 import TrackCanvas from './TrackCanvas';
+import WeatherPanel from './WeatherPanel';
 
 export default function ReplayViewer() {
   const { year, round, session } = useParams<{ year: string; round: string; session: string }>();
@@ -77,6 +78,7 @@ export default function ReplayViewer() {
             frame={playback.currentFrame}
             driverColors={data.driver_colors}
           />
+          <WeatherPanel frame={playback.currentFrame} />
         </aside>
       </div>
 

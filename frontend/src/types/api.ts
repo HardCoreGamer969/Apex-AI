@@ -78,3 +78,27 @@ export interface ReplayPayload {
   circuit_rotation: number;
   session_info: SessionInfo;
 }
+
+export interface QualifyingDriver {
+  code: string;
+  full_name: string;
+  position: number;
+  color: string;
+  Q1: string | null;
+  Q2: string | null;
+  Q3: string | null;
+}
+
+export interface QualifyingPayload {
+  results: QualifyingDriver[];
+  max_speed: number;
+  min_speed: number;
+  session_info: {
+    event_name: string;
+    circuit_name: string;
+    country: string;
+    year: number;
+    round: number;
+    date: string;
+  };
+}

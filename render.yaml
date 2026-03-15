@@ -9,3 +9,9 @@ services:
     envVars:
       - key: CORS_ORIGINS
         sync: false  # Set in Render dashboard to your Vercel frontend URL(s)
+      - key: SUPABASE_URL
+        sync: false  # Optional: Supabase project URL for replay caching
+      - key: SUPABASE_SERVICE_KEY
+        sync: false  # Optional: Supabase service role key for storage access
+      - key: CACHE_MAX_SESSIONS
+        value: "50"  # Max cached replay files in Supabase Storage

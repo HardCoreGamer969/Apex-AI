@@ -10,6 +10,7 @@ from src.f1_data import (
     get_circuit_rotation,
     get_driver_colors,
     get_race_telemetry,
+    get_quali_telemetry,
     load_session,
 )
 from src.ui_components import build_track_from_example_lap
@@ -188,6 +189,40 @@ def get_replay_data(year: int, round_number: int, session_type: str = "R") -> di
                 float(example_lap["Distance"].max())
                 if "Distance" in example_lap
                 else None
+            ),
+        },
+    }
+
+
+def get_qualifying_data(year: int, round_number: int, session_type: str = "Q") -> dict:
+    """Load qualifying session and return results + driver colors."""
+    enable_cache()
+    session = load_session(year, round_number, session_type)
+    quali_data = get_quali_telemetry(session, session_type=session_type)
+
+    # Sanitize results - driver colors are tuples
+    results = quali_data.get("results", [])
+    sanitized_results = []
+    for r in results:
+        entry = {**r}
+        if "color" in entry:
+            entry["color"] = _rgb_to_hex(entry["color"])
+        sanitized_results.append(entry)
+
+    return {
+        "results": sanitized_results,
+        "max_speed": quali_data.get("max_speed", 0),
+        "min_speed": quali_data.get("min_speed", 0),
+        "session_info": {
+            "event_name": session.event.get("EventName", ""),
+            "circuit_name": session.event.get("Location", ""),
+            "country": session.event.get("Country", ""),
+            "year": year,
+            "round": round_number,
+            "date": (
+                session.event.get("EventDate", "").strftime("%B %d, %Y")
+                if hasattr(session.event.get("EventDate"), "strftime")
+                else str(session.event.get("EventDate", ""))
             ),
         },
     }

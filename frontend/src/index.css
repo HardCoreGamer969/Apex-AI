@@ -394,3 +394,102 @@ button {
   color: var(--text-muted);
   margin: 0;
 }
+
+/* Weather Panel */
+.weather-panel {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.weather-panel h3 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.weather-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 0.5rem;
+}
+
+.weather-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.weather-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.weather-value {
+  font-weight: 500;
+}
+
+.weather-value.rain {
+  color: #3b82f6;
+}
+
+/* Qualifying Table */
+.qualifying-table-container {
+  flex: 1;
+  overflow-x: auto;
+  padding: 1.5rem;
+}
+
+.qualifying-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.qualifying-table th,
+.qualifying-table td {
+  padding: 0.6rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.qualifying-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.qualifying-table .pos {
+  color: var(--text-muted);
+  width: 48px;
+}
+
+.qualifying-table .driver {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.qualifying-table .driver-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.qualifying-table .driver-code {
+  font-weight: 500;
+  min-width: 36px;
+}
+
+.qualifying-table .driver-name {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.qualifying-table .time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

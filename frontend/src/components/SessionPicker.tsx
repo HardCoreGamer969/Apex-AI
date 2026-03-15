@@ -4,7 +4,8 @@ import { fetchRaceNames, fetchSessions } from '../api/client';
 import type { Session } from '../types/api';
 
 const currentYear = new Date().getFullYear();
-const LABEL_TO_CODE: Record<string, 'R' | 'S'> = { Race: 'R', Sprint: 'S' };
+const LABEL_TO_CODE: Record<string, string> = { Race: 'R', Sprint: 'S', Qualifying: 'Q', 'Sprint Qualifying': 'SQ' };
+const QUALIFYING_SESSIONS = new Set(['Qualifying', 'Sprint Qualifying']);
 
 function isSessionAvailable(sessionDates: Record<string, string>, label: string): boolean {
   const dateStr = sessionDates[label];
@@ -48,16 +49,20 @@ export default function SessionPicker() {
   const getEventYear = (ev: Session) => ev.year ?? year;
 
   const availableSessions = selectedEvent
-    ? (['Race', 'Sprint'] as const).filter((label) =>
+    ? (['Race', 'Sprint', 'Qualifying', 'Sprint Qualifying'] as const).filter((label) =>
         isSessionAvailable(selectedEvent.session_dates || {}, label)
       )
     : [];
 
-  const handleSessionClick = (label: 'Race' | 'Sprint') => {
+  const handleSessionClick = (label: string) => {
     if (!selectedEvent) return;
     const code = LABEL_TO_CODE[label];
     const evYear = getEventYear(selectedEvent);
-    navigate(`/replay/${evYear}/${selectedEvent.round_number}/${code}`);
+    if (QUALIFYING_SESSIONS.has(label)) {
+      navigate(`/qualifying/${evYear}/${selectedEvent.round_number}/${code}`);
+    } else {
+      navigate(`/replay/${evYear}/${selectedEvent.round_number}/${code}`);
+    }
   };
 
   return (

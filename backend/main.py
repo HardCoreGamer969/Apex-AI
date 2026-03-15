@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from backend.routers import replay, sessions
+from backend.routers import replay, sessions, websocket, websocket
 
 app = FastAPI(
     title="ApexAI API",
@@ -32,6 +32,8 @@ app.add_middleware(
 
 app.include_router(sessions.router)
 app.include_router(replay.router)
+app.include_router(websocket.router)
+app.include_router(websocket.router)
 
 
 @app.get("/health")

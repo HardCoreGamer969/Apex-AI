@@ -1,4 +1,4 @@
-import type { ReplayPayload, Session } from '../types/api';
+import type { ReplayPayload, Session, QualifyingPayload } from '../types/api';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -39,4 +39,12 @@ export async function fetchReplay(
   stride = 5,
 ): Promise<ReplayPayload> {
   return fetchApi<ReplayPayload>('/replay', { year, round, session, stride });
+}
+
+export async function fetchQualifying(
+  year: number,
+  round: number,
+  session: 'Q' | 'SQ' = 'Q',
+): Promise<QualifyingPayload> {
+  return fetchApi<QualifyingPayload>('/replay/qualifying', { year, round, session });
 }
