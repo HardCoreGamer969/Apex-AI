@@ -1,5 +1,6 @@
 
 venv/
+.venv/
 
 output_animation.mp4
 .fastf1-cache
@@ -12,3 +13,4 @@ computed_data/
 
 .DS_Store
 .idea
+.cursor/

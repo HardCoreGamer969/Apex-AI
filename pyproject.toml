@@ -1,0 +1,30 @@
+[project]
+name = "apex-ai"
+version = "0.1.0"
+description = "F1 Race Replay - full-stack web app with FastAPI backend and React frontend"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastf1",
+    "pandas",
+    "matplotlib",
+    "numpy",
+    "arcade",
+    "pyglet",
+    "pyside6",
+    "questionary",
+    "rich",
+    "fastapi",
+    "uvicorn[standard]",
+    "orjson>=3.11.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "httpx",
+]
+
+[tool.uv]
+# Virtual project: only dependencies are installed, no package build
+package = false

@@ -43,10 +43,17 @@ Recently added support for Qualifying session replays with telemetry visualizati
 - [Arcade](https://api.arcade.academy/en/latest/)
 - numpy
 
-Install dependencies:
+Install dependencies (using **uv** recommended):
+
 ```bash
+# With uv (recommended - fast, reproducible)
+uv sync
+
+# Or with pip
 pip install -r requirements.txt
 ```
+
+To regenerate `requirements.txt` from `pyproject.toml`: `uv export -o requirements.txt`
 
 FastF1 cache folder will be created automatically on first run. If it is not created, you can manually create a folder named `.fastf1-cache` in the project root.
 
@@ -73,11 +80,40 @@ To get started with this project locally, you can follow these steps:
       ```
 3. **Install Dependencies:**
     ```bash
+    # With uv (recommended)
+    uv sync
+
+    # Or with pip
     pip install -r requirements.txt
     ```
 
 4. **Run the Application:**
     You can now run the application using the instructions in the Usage section below.
+
+## Web App (Full-Stack)
+
+The project includes a React frontend and FastAPI backend. To run the full web app:
+
+**1. Start the backend:**
+```bash
+uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+**2. Start the frontend:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:5173. Set `VITE_API_URL=http://localhost:8000` in `frontend/.env` if the API runs elsewhere.
+
+**API Endpoints:**
+- `GET /sessions?year=2024` - List race weekends by year
+- `GET /sessions?place=Monaco` - List weekends by place
+- `GET /sessions/race-names` - Unique race names for dropdowns
+- `GET /replay?year=2024&round=5&session=R` - Full replay data (frames, track, driver colors)
+- `GET /health` - Health check
 
 ## Usage
 
