@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from backend.routers import replay, sessions, websocket, websocket
+from backend.routers import replay, sessions, websocket
 
 app = FastAPI(
     title="ApexAI API",
@@ -22,9 +22,11 @@ app = FastAPI(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:3000").split(",")
+origins = [o.strip() for o in cors_origins if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in cors_origins if o.strip()],
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Allow any Vercel deployment
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,7 +34,6 @@ app.add_middleware(
 
 app.include_router(sessions.router)
 app.include_router(replay.router)
-app.include_router(websocket.router)
 app.include_router(websocket.router)
 
 
