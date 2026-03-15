@@ -4,8 +4,10 @@ Run from project root:
   uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
   # or: uvicorn backend.main:app --host 0.0.0.0 --port 8000
 """
-
+# Reduce memory before FastF1/matplotlib load (Render free tier = 512MB)
 import os
+os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,3 +43,11 @@ app.include_router(websocket.router)
 def health():
     """Health check for Render/deployment."""
     return {"status": "ok"}
+
+
+@app.get("/health/cache")
+def health_cache():
+    """Check if Supabase cache is configured (for debugging)."""
+    from backend.services import cache
+    configured = bool(cache.SUPABASE_URL and cache.SUPABASE_KEY)
+    return {"supabase_configured": configured, "bucket": cache.CACHE_BUCKET}

@@ -45,7 +45,7 @@ def l1_set(key: str, value: Any) -> None:
 _supabase_client = None
 _supabase_available = False
 
-_l2_memory: LRUCache = LRUCache(maxsize=5)
+_l2_memory: LRUCache = LRUCache(maxsize=2)  # Keep small for 512MB Render free tier
 
 
 def _get_supabase():

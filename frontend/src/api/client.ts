@@ -2,22 +2,45 @@ import type { ReplayPayload, Session, QualifyingPayload } from '../types/api';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-async function fetchApi<T>(path: string, params?: Record<string, string | number>): Promise<T> {
+const REPLAY_TIMEOUT_MS = 180_000; // 3 min for replay (first load can take 1–2 min on Render)
+
+async function fetchApi<T>(
+  path: string,
+  params?: Record<string, string | number>,
+  options?: { timeoutMs?: number },
+): Promise<T> {
   const url = new URL(path, API_BASE);
   if (params) {
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
   }
-  const res = await fetch(url.toString());
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API error ${res.status}: ${text}`);
-  }
-  const text = await res.text();
-  if (!text) throw new Error('Empty response from server');
+  const timeoutMs = options?.timeoutMs ?? 30_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`JSON parse failed (response length: ${text.length}, first 200 chars: ${text.slice(0, 200)})`);
+    const res = await fetch(url.toString(), { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API error ${res.status}: ${text}`);
+    }
+    const text = await res.text();
+    if (!text) throw new Error('Empty response from server');
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(`JSON parse failed (response length: ${text.length}, first 200 chars: ${text.slice(0, 200)})`);
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error) {
+      if (err.name === 'AbortError') {
+        throw new Error('Request timed out. First replay load can take 1–2 minutes — try again or pick a different race.');
+      }
+      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError') || err.message.includes('Load failed')) {
+        throw new Error('Connection failed. The server may be starting up or the request timed out (Render free tier limits to ~30s). Try again.');
+      }
+    }
+    throw err;
   }
 }
 
@@ -38,7 +61,7 @@ export async function fetchReplay(
   session: 'R' | 'S',
   stride = 5,
 ): Promise<ReplayPayload> {
-  return fetchApi<ReplayPayload>('/replay', { year, round, session, stride });
+  return fetchApi<ReplayPayload>('/replay', { year, round, session, stride }, { timeoutMs: REPLAY_TIMEOUT_MS });
 }
 
 export async function fetchQualifying(

@@ -1,5 +1,6 @@
 """Replay data endpoint - frames, track geometry, session info."""
 
+import gc
 import logging
 
 import orjson
@@ -48,6 +49,7 @@ def get_replay(
             data = {**data, "frames": data["frames"][::stride]}
 
         content = orjson.dumps(data, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY)
+        gc.collect()  # Free memory after heavy processing (Render 512MB limit)
         return Response(content=content, media_type="application/json")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
