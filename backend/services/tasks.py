@@ -32,7 +32,11 @@ def _cache_key(year: int, round_number: int, session: str) -> str:
 
 def get_task(task_id: str) -> dict | None:
     with _lock:
-        return _tasks.get(task_id)
+        task = _tasks.get(task_id)
+    if task is not None:
+        return task
+    from backend.services.cache import task_status_get
+    return task_status_get(task_id)
 
 
 def find_active_task(year: int, round_number: int, session: str) -> str | None:
@@ -48,6 +52,8 @@ def find_active_task(year: int, round_number: int, session: str) -> str | None:
 
 
 def create_task(year: int, round_number: int, session: str) -> str:
+    from backend.services.cache import task_status_set
+
     task_id = uuid.uuid4().hex[:12]
     key = _cache_key(year, round_number, session)
     with _lock:
@@ -61,13 +67,17 @@ def create_task(year: int, round_number: int, session: str) -> str:
             "created_at": time.time(),
         }
         _active_keys[key] = task_id
+        task_status_set(task_id, _tasks[task_id])
     return task_id
 
 
 def update_task(task_id: str, **kwargs) -> None:
+    from backend.services.cache import task_status_set
+
     with _lock:
         if task_id in _tasks:
             _tasks[task_id].update(kwargs)
+            task_status_set(task_id, _tasks[task_id])
 
 
 def start_replay_task(
@@ -153,6 +163,8 @@ def start_qualifying_task(
 
 def cleanup_old_tasks(max_age_seconds: int = 3600) -> None:
     """Remove completed/errored tasks older than max_age_seconds."""
+    from backend.services.cache import task_status_delete
+
     now = time.time()
     with _lock:
         to_remove = [
@@ -163,3 +175,5 @@ def cleanup_old_tasks(max_age_seconds: int = 3600) -> None:
         ]
         for tid in to_remove:
             del _tasks[tid]
+    for tid in to_remove:
+        task_status_delete(tid)

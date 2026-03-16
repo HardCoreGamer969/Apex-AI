@@ -81,7 +81,7 @@ async function fetchWithPolling<T>(
     return body as T;
   }
 
-  const taskId: string = body.task_id;
+  let taskId: string = body.task_id;
   onProgress?.('Server is computing this session...');
 
   while (Date.now() < deadline) {
@@ -101,6 +101,21 @@ async function fetchWithPolling<T>(
 
       onProgress?.(status.progress ?? 'Computing...');
     } catch (err) {
+      if (err instanceof Error && err.message.includes('Unknown task_id')) {
+        // Instance may have restarted; retry original request - cache may be populated
+        onProgress?.('Retrying...');
+        const retryRes = await fetch(url.toString());
+        if (!retryRes.ok && retryRes.status !== 202) {
+          const text = await retryRes.text();
+          throw new Error(`API error ${retryRes.status}: ${text}`);
+        }
+        const retryBody = await retryRes.json();
+        if (retryRes.status !== 202) {
+          return retryBody as T;
+        }
+        taskId = retryBody.task_id;
+        continue;
+      }
       if (err instanceof Error && (err.message.includes('API error') || err.message.includes('Computation failed'))) {
         throw err;
       }

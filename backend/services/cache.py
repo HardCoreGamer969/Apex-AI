@@ -208,6 +208,80 @@ def quali_set(year: int, round_number: int, session: str, payload: dict) -> None
         _l2_memory[key] = payload
 
 
+# ---------------------------------------------------------------------------
+# Task status persistence (for cross-instance / restart resilience)
+# ---------------------------------------------------------------------------
+_task_status_memory: dict[str, dict[str, Any]] = {}
+
+
+def _task_status_key(task_id: str) -> str:
+    return f"tasks/{task_id}.json"
+
+
+def task_status_get(task_id: str) -> dict[str, Any] | None:
+    """Retrieve task status from Supabase Storage or in-memory fallback."""
+    key = _task_status_key(task_id)
+
+    sb = _get_supabase()
+    if sb and _supabase_available:
+        try:
+            data = sb.storage.from_(CACHE_BUCKET).download(key)
+            if data:
+                payload = orjson.loads(data)
+                return payload
+        except Exception as e:
+            logger.debug("Task status miss or error for %s: %s", task_id, e)
+        return None
+
+    return _task_status_memory.get(task_id)
+
+
+def task_status_set(task_id: str, task: dict[str, Any]) -> None:
+    """Persist task status to Supabase Storage or in-memory fallback."""
+    key = _task_status_key(task_id)
+    payload = {
+        "status": task.get("status", "pending"),
+        "progress": task.get("progress"),
+        "error": task.get("error"),
+        "year": task.get("year"),
+        "round": task.get("round"),
+        "session": task.get("session"),
+        "created_at": task.get("created_at"),
+    }
+
+    sb = _get_supabase()
+    if sb and _supabase_available:
+        try:
+            data = orjson.dumps(payload)
+            sb.storage.from_(CACHE_BUCKET).upload(
+                key,
+                data,
+                {"content-type": "application/json", "upsert": "true"},
+            )
+        except Exception as e:
+            logger.warning("Task status write failed for %s: %s", task_id, e)
+    else:
+        _task_status_memory[task_id] = payload
+
+
+def task_status_delete(task_id: str) -> None:
+    """Remove task status from Supabase Storage or in-memory fallback."""
+    key = _task_status_key(task_id)
+
+    sb = _get_supabase()
+    if sb and _supabase_available:
+        try:
+            sb.storage.from_(CACHE_BUCKET).remove([key])
+        except Exception as e:
+            logger.debug("Task status delete failed for %s: %s", task_id, e)
+    else:
+        _task_status_memory.pop(task_id, None)
+
+
+# ---------------------------------------------------------------------------
+# L2 eviction
+# ---------------------------------------------------------------------------
+
 def _evict_if_needed(sb) -> None:
     """If we exceed CACHE_MAX_SESSIONS files, delete the oldest ones."""
     try:
