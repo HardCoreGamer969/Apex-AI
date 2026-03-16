@@ -17,18 +17,24 @@ export default function QualifyingViewer() {
   const [data, setData] = useState<QualifyingPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
+    setProgress(null);
     const y = parseInt(year ?? '0', 10);
     const r = parseInt(round ?? '0', 10);
     const s = (session === 'SQ' ? 'SQ' : 'Q') as 'Q' | 'SQ';
     if (!y || !r) { setError('Invalid session.'); setLoading(false); return; }
-    fetchQualifying(y, r, s)
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    fetchQualifying(y, r, s, (msg) => {
+      if (!cancelled) setProgress(msg);
+    })
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [year, round, session]);
 
   if (loading) {
@@ -36,7 +42,7 @@ export default function QualifyingViewer() {
       <div className="replay-viewer">
         <div className="loading">
           <p>Loading qualifying results...</p>
-          <p className="muted">This may take a minute if the session hasn't been cached yet.</p>
+          <p className="muted">{progress ?? 'This may take a minute if the session hasn\'t been cached yet.'}</p>
         </div>
       </div>
     );

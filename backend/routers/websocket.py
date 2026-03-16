@@ -1,31 +1,22 @@
 """
 WebSocket endpoint for streaming replay data.
+
+Only serves data that is already in cache.  If the replay hasn't been computed
+yet, the client should use the HTTP /replay endpoint (which triggers background
+computation and returns a task_id for polling).
 """
 
 import asyncio
+import gc
 import logging
 import orjson
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from backend.services.cache import replay_get, replay_set
-from backend.services.f1_adapter import get_replay_data
+from backend.services.cache import replay_get
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _load_replay_data(year: int, round_number: int, session: str) -> dict:
-    """Load replay data from cache or compute. Runs in thread pool."""
-    data = replay_get(year, round_number, session)
-    if data is not None:
-        return data
-    data = get_replay_data(year=year, round_number=round_number, session_type=session)
-    try:
-        replay_set(year, round_number, session, data)
-    except Exception as e:
-        logger.warning("Cache write failed: %s", e)
-    return data
 
 
 @router.websocket("/ws/replay")
@@ -48,7 +39,16 @@ async def websocket_replay(websocket: WebSocket):
             await websocket.close()
             return
 
-        data = await asyncio.to_thread(_load_replay_data, year, round_number, session)
+        data = await asyncio.to_thread(replay_get, year, round_number, session)
+
+        if data is None:
+            await websocket.send_json({
+                "type": "error",
+                "detail": "not_cached",
+                "message": "Replay not cached yet. Use GET /replay to trigger computation.",
+            })
+            await websocket.close()
+            return
 
         metadata = {
             "type": "metadata",
@@ -63,6 +63,9 @@ async def websocket_replay(websocket: WebSocket):
         await websocket.send_text(orjson.dumps(metadata, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY).decode())
 
         frames = data.get("frames", [])
+        del data
+        gc.collect()
+
         for i, frame in enumerate(frames):
             payload = {"type": "frame", "index": i, "frame": frame}
             await websocket.send_text(orjson.dumps(payload, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY).decode())

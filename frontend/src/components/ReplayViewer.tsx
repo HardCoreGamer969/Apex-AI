@@ -14,10 +14,13 @@ export default function ReplayViewer() {
   const [data, setData] = useState<ReplayPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
+    setProgress(null);
     const y = parseInt(year ?? '0', 10);
     const r = parseInt(round ?? '0', 10);
     const s = (session === 'S' ? 'S' : 'R') as 'R' | 'S' ;
@@ -28,10 +31,14 @@ export default function ReplayViewer() {
       return;
     }
 
-    fetchReplay(y, r, s)
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    fetchReplay(y, r, s, 5, (msg) => {
+      if (!cancelled) setProgress(msg);
+    })
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
   }, [year, round, session]);
 
   const playback = useReplayPlayback(data?.frames ?? []);
@@ -41,7 +48,7 @@ export default function ReplayViewer() {
       <div className="replay-viewer">
         <div className="loading">
           <p>Loading replay data...</p>
-          <p className="muted">This may take a minute if the session hasn't been cached yet.</p>
+          <p className="muted">{progress ?? 'This may take a minute if the session hasn\'t been cached yet.'}</p>
         </div>
       </div>
     );

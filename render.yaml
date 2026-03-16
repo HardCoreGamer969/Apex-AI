@@ -19,3 +19,5 @@ services:
         sync: false  # Optional: Supabase service role key for storage access
       - key: CACHE_MAX_SESSIONS
         value: "50"  # Max cached replay files in Supabase Storage
+      - key: ADMIN_SECRET
+        sync: false  # Secret for /admin/* endpoints (set in Render dashboard)

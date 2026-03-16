@@ -1,11 +1,19 @@
+# Core dependencies (backend + data processing)
 fastf1
 pandas
 matplotlib
 numpy
-arcade
-pyglet
-pyside6
-questionary
-rich
 fastapi
 uvicorn[standard]
+orjson>=3.11.7
+cachetools>=7.0.5
+supabase>=2.25.1
+
+# Desktop GUI (not needed on Render/server deployments)
+# Install with: pip install -r requirements.txt -r requirements-desktop.txt
+# Or: uv sync --extra desktop
+# arcade
+# pyglet
+# pyside6
+# questionary
+# rich

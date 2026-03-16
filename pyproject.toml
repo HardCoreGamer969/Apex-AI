@@ -9,11 +9,6 @@ dependencies = [
     "pandas",
     "matplotlib",
     "numpy",
-    "arcade",
-    "pyglet",
-    "pyside6",
-    "questionary",
-    "rich",
     "fastapi",
     "uvicorn[standard]",
     "orjson>=3.11.7",
@@ -22,6 +17,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+desktop = [
+    "arcade",
+    "pyglet",
+    "pyside6",
+    "questionary",
+    "rich",
+]
 dev = [
     "pytest",
     "httpx",

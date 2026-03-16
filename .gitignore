@@ -11,6 +11,8 @@ __pycache__/
 
 computed_data/
 
+node_modules/
+
 .DS_Store
 .idea
 .cursor/

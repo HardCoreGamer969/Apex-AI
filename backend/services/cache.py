@@ -90,6 +90,10 @@ def _replay_key(year: int, round_number: int, session: str) -> str:
     return f"replay/{year}/{round_number}/{session}.json.gz"
 
 
+def _quali_key(year: int, round_number: int, session: str) -> str:
+    return f"qualifying/{year}/{round_number}/{session}.json.gz"
+
+
 # ---------------------------------------------------------------------------
 # L2 public API
 # ---------------------------------------------------------------------------
@@ -139,6 +143,52 @@ def replay_set(year: int, round_number: int, session: str, payload: dict) -> Non
             _evict_if_needed(sb)
         except Exception as e:
             logger.warning("L2 Supabase write failed for %s: %s", key, e)
+
+
+def quali_get(year: int, round_number: int, session: str) -> dict | None:
+    """Try to retrieve cached qualifying data. Returns None on miss."""
+    key = _quali_key(year, round_number, session)
+
+    sb = _get_supabase()
+    if sb and _supabase_available:
+        try:
+            data = sb.storage.from_(CACHE_BUCKET).download(key)
+            if data:
+                decompressed = gzip.decompress(data)
+                logger.info("L2 Supabase quali hit: %s (%d bytes compressed)", key, len(data))
+                return orjson.loads(decompressed)
+        except Exception as e:
+            logger.debug("L2 Supabase quali miss or error for %s: %s", key, e)
+
+    cached = _l2_memory.get(key)
+    if cached is not None:
+        logger.info("L2 memory quali hit: %s", key)
+        return cached
+
+    return None
+
+
+def quali_set(year: int, round_number: int, session: str, payload: dict) -> None:
+    """Store qualifying data in L2 cache."""
+    key = _quali_key(year, round_number, session)
+
+    _l2_memory[key] = payload
+
+    sb = _get_supabase()
+    if sb and _supabase_available:
+        try:
+            compressed = gzip.compress(
+                orjson.dumps(payload, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY),
+                compresslevel=6,
+            )
+            sb.storage.from_(CACHE_BUCKET).upload(
+                key,
+                compressed,
+                {"content-type": "application/gzip", "upsert": "true"},
+            )
+            logger.info("L2 Supabase quali stored: %s (%d bytes)", key, len(compressed))
+        except Exception as e:
+            logger.warning("L2 Supabase quali write failed for %s: %s", key, e)
 
 
 def _evict_if_needed(sb) -> None:

@@ -1,8 +1,8 @@
+import gc
 import os
 import pickle
 import sys
 from datetime import timedelta, date
-from multiprocessing import Pool, cpu_count
 
 import fastf1
 import fastf1.plotting
@@ -70,16 +70,16 @@ def _process_single_driver(args):
         if lap_tel.empty:
             continue
 
-        t_lap = lap_tel["SessionTime"].dt.total_seconds().to_numpy()
-        x_lap = lap_tel["X"].to_numpy()
-        y_lap = lap_tel["Y"].to_numpy()
-        d_lap = lap_tel["Distance"].to_numpy()
-        rd_lap = lap_tel["RelativeDistance"].to_numpy()
-        speed_kph_lap = lap_tel["Speed"].to_numpy()
-        gear_lap = lap_tel["nGear"].to_numpy()
-        drs_lap = lap_tel["DRS"].to_numpy()
-        throttle_lap = lap_tel["Throttle"].to_numpy()
-        brake_lap = lap_tel["Brake"].to_numpy().astype(float)
+        t_lap = lap_tel["SessionTime"].dt.total_seconds().to_numpy(dtype=np.float32)
+        x_lap = lap_tel["X"].to_numpy(dtype=np.float32)
+        y_lap = lap_tel["Y"].to_numpy(dtype=np.float32)
+        d_lap = lap_tel["Distance"].to_numpy(dtype=np.float32)
+        rd_lap = lap_tel["RelativeDistance"].to_numpy(dtype=np.float32)
+        speed_kph_lap = lap_tel["Speed"].to_numpy(dtype=np.float32)
+        gear_lap = lap_tel["nGear"].to_numpy(dtype=np.float32)
+        drs_lap = lap_tel["DRS"].to_numpy(dtype=np.float32)
+        throttle_lap = lap_tel["Throttle"].to_numpy(dtype=np.float32)
+        brake_lap = lap_tel["Brake"].to_numpy().astype(np.float32)
 
         # race distance = distance before this lap + distance within this lap
         race_d_lap = total_dist_so_far + d_lap
@@ -171,11 +171,19 @@ def get_circuit_rotation(session):
     return circuit.rotation
 
 
-def get_race_telemetry(session, session_type="R"):
+def get_race_telemetry(session, session_type="R", target_fps=None):
+    """Compute race telemetry frames.
+
+    Args:
+        target_fps: Override FPS for the output timeline.  Pass 5 from the web
+                    backend to produce 5x fewer frames and save memory.
+                    None uses the module-level FPS (25).
+    """
+    effective_fps = target_fps if target_fps is not None else FPS
+    effective_dt = 1.0 / effective_fps
+
     event_name = str(session).replace(" ", "_")
     cache_suffix = "sprint" if session_type == "S" else "race"
-
-    # Check if this data has already been computed
 
     try:
         if "--refresh-data" not in sys.argv:
@@ -187,7 +195,7 @@ def get_race_telemetry(session, session_type="R"):
                 print("The replay should begin in a new window shortly!")
                 return frames
     except FileNotFoundError:
-        pass  # Need to compute from scratch
+        pass
 
     drivers = session.drivers
 
@@ -200,19 +208,18 @@ def get_race_telemetry(session, session_type="R"):
 
     max_lap_number = 0
 
-    # 1. Get all of the drivers telemetry data using multiprocessing
-    # Prepare arguments for parallel processing
-    print(f"Processing {len(drivers)} drivers in parallel...")
+    # 1. Process each driver's telemetry sequentially to stay within 512MB RAM
+    print(f"Processing {len(drivers)} drivers sequentially...")
     driver_args = [
         (driver_no, session, driver_codes[driver_no]) for driver_no in drivers
     ]
 
-    num_processes = min(cpu_count(), len(drivers))
+    results = []
+    for args in driver_args:
+        result = _process_single_driver(args)
+        results.append(result)
+        gc.collect()
 
-    with Pool(processes=num_processes) as pool:
-        results = pool.map(_process_single_driver, driver_args)
-
-    # Process results
     for result in results:
         if result is None:
             continue
@@ -231,9 +238,10 @@ def get_race_telemetry(session, session_type="R"):
     if global_t_min is None or global_t_max is None:
         raise ValueError("No valid telemetry data found for any driver")
 
-    # 2. Create a timeline (start from zero)
-    timeline = np.arange(global_t_min, global_t_max, DT) - global_t_min
+    # 2. Create a timeline (start from zero) at the target FPS
+    timeline = np.arange(global_t_min, global_t_max, effective_dt, dtype=np.float32) - np.float32(global_t_min)
 
+    # Free raw driver data as we resample
     # 3. Resample each driver's telemetry (x, y, gap) onto the common timeline
     resampled_data = {}
     max_tyre_life_map = {}
@@ -286,6 +294,10 @@ def get_race_telemetry(session, session_type="R"):
             c_max = np.nanmax(tyre_life_resampled[mask])
             if not np.isnan(c_max):
                 max_tyre_life_map[int(t_int)] = max(max_tyre_life_map.get(int(t_int), 1), int(c_max))
+
+    # Free raw driver data now that everything is resampled
+    del driver_data
+    gc.collect()
 
     # 4. Incorporate track status data into the timeline (for safety car, VSC, etc.)
 
@@ -907,12 +919,14 @@ def get_quali_telemetry(session, session_type="Q"):
 
     driver_args = [(session, driver_codes[driver_no]) for driver_no in session.drivers]
 
-    print(f"Processing {len(session.drivers)} drivers in parallel...")
+    print(f"Processing {len(session.drivers)} drivers sequentially...")
 
-    num_processes = min(cpu_count(), len(session.drivers))
+    results = []
+    for args in driver_args:
+        result = _process_quali_driver(args)
+        results.append(result)
+        gc.collect()
 
-    with Pool(processes=num_processes) as pool:
-        results = pool.map(_process_quali_driver, driver_args)
     for result in results:
         driver_code = result["driver_code"]
         telemetry_data[driver_code] = {

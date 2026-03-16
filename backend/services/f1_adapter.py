@@ -101,27 +101,15 @@ def _serialize_track(track_tuple: tuple) -> dict[str, Any]:
 
 
 def _get_example_lap(year: int, round_number: int, session_type: str, session):
-    """Get example lap for track layout (quali preferred for DRS, else race fastest)."""
-    example_lap = None
+    """Get example lap for track layout from the already-loaded session.
 
-    if session_type in ("R", "S"):
-        try:
-            quali_session = load_session(year, round_number, "Q")
-            if quali_session is not None and len(quali_session.laps) > 0:
-                fastest_quali = quali_session.laps.pick_fastest()
-                if fastest_quali is not None:
-                    quali_telemetry = fastest_quali.get_telemetry()
-                    if "DRS" in quali_telemetry.columns:
-                        example_lap = quali_telemetry
-        except Exception:
-            pass
-
-    if example_lap is None:
-        fastest_lap = session.laps.pick_fastest()
-        if fastest_lap is not None:
-            example_lap = fastest_lap.get_telemetry()
-
-    return example_lap
+    Avoids loading a second session (e.g. qualifying) which would double RAM
+    usage -- critical on Render free tier (512MB).
+    """
+    fastest_lap = session.laps.pick_fastest()
+    if fastest_lap is not None:
+        return fastest_lap.get_telemetry()
+    return None
 
 
 def get_replay_data(year: int, round_number: int, session_type: str = "R") -> dict:
@@ -133,7 +121,7 @@ def get_replay_data(year: int, round_number: int, session_type: str = "R") -> di
     session = load_session(year, round_number, session_type)
 
     if session_type in ("R", "S"):
-        telemetry = get_race_telemetry(session, session_type=session_type)
+        telemetry = get_race_telemetry(session, session_type=session_type, target_fps=5)
     else:
         raise ValueError(f"Session type {session_type} not supported for replay (use R or S)")
 
