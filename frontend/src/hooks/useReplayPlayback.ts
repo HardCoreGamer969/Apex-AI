@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Frame } from '../types/api';
+import type { ReplayPayload } from '../types/api';
 
 const DATA_FPS = 5;
 
@@ -9,7 +9,7 @@ export interface InterpolationState {
   alpha: number;
 }
 
-export function useReplayPlayback(frames: Frame[]) {
+export function useReplayPlayback(data: ReplayPayload | null) {
   const [frameIndex, setFrameIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -21,7 +21,7 @@ export function useReplayPlayback(frames: Frame[]) {
   const playingRef = useRef(false);
   const speedRef = useRef(1);
 
-  const totalFrames = frames.length;
+  const totalFrames = data?.timeline.length ?? 0;
 
   useEffect(() => {
     playingRef.current = isPlaying;
@@ -36,9 +36,10 @@ export function useReplayPlayback(frames: Frame[]) {
     interpRef.current = { indexA: 0, indexB: 0, alpha: 0 };
     setFrameIndex(0);
     setIsPlaying(false);
-  }, [frames.length]);
+  }, [totalFrames]);
 
-  const currentFrame = frames[frameIndex] ?? null;
+  const currentTime = data ? (data.timeline[frameIndex] ?? 0) : 0;
+  const currentLap = data ? (data.leader_laps[frameIndex] ?? 1) : 1;
 
   const seek = useCallback(
     (newIndex: number) => {
@@ -96,7 +97,6 @@ export function useReplayPlayback(frames: Frame[]) {
   }, [isPlaying, totalFrames]);
 
   return {
-    currentFrame,
     frameIndex,
     totalFrames,
     isPlaying,
@@ -106,6 +106,7 @@ export function useReplayPlayback(frames: Frame[]) {
     setSpeed: setPlaybackSpeed,
     playbackSpeed,
     interpRef,
-    frames,
+    currentTime,
+    currentLap,
   };
 }

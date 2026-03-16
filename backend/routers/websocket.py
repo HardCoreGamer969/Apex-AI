@@ -50,26 +50,15 @@ async def websocket_replay(websocket: WebSocket):
             await websocket.close()
             return
 
-        metadata = {
-            "type": "metadata",
-            "driver_colors": data["driver_colors"],
-            "track_statuses": data["track_statuses"],
-            "total_laps": data["total_laps"],
-            "max_tyre_life": data["max_tyre_life"],
-            "track": data["track"],
-            "circuit_rotation": data["circuit_rotation"],
-            "session_info": data["session_info"],
-        }
-        await websocket.send_text(orjson.dumps(metadata, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY).decode())
-
-        frames = data.get("frames", [])
+        payload = {"type": "columnar_replay", **data}
+        await websocket.send_text(
+            orjson.dumps(
+                payload,
+                option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY,
+            ).decode()
+        )
         del data
         gc.collect()
-
-        for i, frame in enumerate(frames):
-            payload = {"type": "frame", "index": i, "frame": frame}
-            await websocket.send_text(orjson.dumps(payload, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY).decode())
-            await asyncio.sleep(0.04)
 
         await websocket.send_text(orjson.dumps({"type": "done"}).decode())
 

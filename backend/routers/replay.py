@@ -21,10 +21,9 @@ def get_replay(
     year: int = Query(..., ge=2018, description="Season year"),
     round_number: int = Query(..., ge=1, le=24, alias="round", description="Round number"),
     session: str = Query("R", description="Session type: R (Race), S (Sprint)"),
-    stride: int = Query(5, ge=1, le=25, description="Take every Nth frame (1=all 25fps, 5=5fps, etc.)"),
 ):
     """
-    Return full replay payload.  Checks Supabase cache first.
+    Return full replay payload (columnar format).  Checks Supabase cache first.
     On cache miss, starts a background task and returns 202 so the frontend
     can poll /replay/status until the data is ready.
     """
@@ -41,8 +40,6 @@ def get_replay(
             logger.warning("Cache read failed: %s", e)
 
         if data is not None:
-            if stride > 1:
-                data = {**data, "frames": data["frames"][::stride]}
             content = orjson.dumps(data, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY)
             gc.collect()
             return Response(content=content, media_type="application/json")

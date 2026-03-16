@@ -1,11 +1,11 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import type { Frame, Track } from '../types/api';
+import type { ColumnarDriverData, Track } from '../types/api';
 import type { InterpolationState } from '../hooks/useReplayPlayback';
 
 interface TrackCanvasProps {
   track: Track;
   circuitRotation: number;
-  frames: Frame[];
+  drivers: Record<string, ColumnarDriverData>;
   driverColors: Record<string, string>;
   interpRef: RefObject<InterpolationState>;
 }
@@ -17,7 +17,7 @@ function lerp(a: number, b: number, t: number) {
 export default function TrackCanvas({
   track,
   circuitRotation,
-  frames,
+  drivers,
   driverColors,
   interpRef,
 }: TrackCanvasProps) {
@@ -35,7 +35,6 @@ export default function TrackCanvas({
   const rangeX = track.x_max - track.x_min || 1;
   const rangeY = track.y_max - track.y_min || 1;
 
-  // Render static track to an offscreen canvas (once per track change)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !track) return;
@@ -97,10 +96,10 @@ export default function TrackCanvas({
     trackImageRef.current = offscreen;
   }, [track, circuitRotation, cx, cy, rangeX, rangeY, cos, sin, padding]);
 
-  // 60fps animation loop — reads interpRef directly, no React re-renders
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !track || frames.length === 0) return;
+    const codes = Object.keys(drivers);
+    if (!canvas || !track || codes.length === 0) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -129,22 +128,13 @@ export default function TrackCanvas({
       }
 
       const { indexA, indexB, alpha } = interpRef.current;
-      const frameA = frames[indexA];
-      const frameB = frames[indexB];
-      if (!frameA?.drivers) {
-        rafRef.current = requestAnimationFrame(draw);
-        return;
-      }
 
-      const driversA = frameA.drivers;
-      const driversB = frameB?.drivers ?? driversA;
+      for (const code of codes) {
+        const d = drivers[code];
+        if (!d?.x) continue;
 
-      for (const code of Object.keys(driversA)) {
-        const a = driversA[code];
-        const b = driversB[code] ?? a;
-
-        const worldX = lerp(a.x, b.x, alpha);
-        const worldY = lerp(a.y, b.y, alpha);
+        const worldX = lerp(d.x[indexA] ?? 0, d.x[indexB] ?? d.x[indexA] ?? 0, alpha);
+        const worldY = lerp(d.y[indexA] ?? 0, d.y[indexB] ?? d.y[indexA] ?? 0, alpha);
         const { x: px, y: py } = toCanvas(worldX, worldY);
 
         const color = driverColors[code] || '#888';
@@ -164,7 +154,7 @@ export default function TrackCanvas({
     return () => {
       if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current);
     };
-  }, [track, circuitRotation, frames, driverColors, interpRef, cx, cy, rangeX, rangeY, cos, sin, padding]);
+  }, [track, circuitRotation, drivers, driverColors, interpRef, cx, cy, rangeX, rangeY, cos, sin, padding]);
 
   return <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />;
 }

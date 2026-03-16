@@ -126,10 +126,10 @@ export async function fetchReplay(
   year: number,
   round: number,
   session: 'R' | 'S',
-  stride = 5,
+  _stride?: number,
   onProgress?: (msg: string) => void,
 ): Promise<ReplayPayload> {
-  return fetchWithPolling<ReplayPayload>('/replay', { year, round, session, stride }, onProgress);
+  return fetchWithPolling<ReplayPayload>('/replay', { year, round, session }, onProgress);
 }
 
 export async function fetchQualifying(

@@ -371,132 +371,65 @@ def get_race_telemetry(session, session_type="R", target_fps=None):
         except Exception as e:
             print(f"Weather data could not be processed: {e}")
 
-    # 5. Build the frames + LIVE LEADERBOARD
-    frames = []
+    # 5. Vectorized position computation (replaces the slow per-frame Python loop)
+    driver_codes_list = list(resampled_data.keys())
+    num_drivers = len(driver_codes_list)
     num_frames = len(timeline)
 
-    # Pre-extract data references for faster access
-    driver_codes = list(resampled_data.keys())
-    driver_arrays = {code: resampled_data[code] for code in driver_codes}
+    lap_matrix = np.empty((num_drivers, num_frames), dtype=np.float32)
+    dist_matrix = np.empty((num_drivers, num_frames), dtype=np.float32)
+    for di, code in enumerate(driver_codes_list):
+        lap_matrix[di] = np.round(resampled_data[code]["lap"])
+        dist_matrix[di] = resampled_data[code]["dist"]
 
-    for i in range(num_frames):
-        t = timeline[i]
-        snapshot = []
-        for code in driver_codes:
-            d = driver_arrays[code]
-            snapshot.append({
-                "code": code,
-                "dist": float(d["dist"][i]),
-                "x": float(d["x"][i]),
-                "y": float(d["y"][i]),
-                "lap": int(round(d["lap"][i])),
-                "rel_dist": float(d["rel_dist"][i]),
-                "tyre": float(d["tyre"][i]),
-                "tyre_life": float(d["tyre_life"][i]),
-                "speed": float(d['speed'][i]),
-                "gear": int(d['gear'][i]),
-                "drs": int(d['drs'][i]),
-                "throttle": float(d['throttle'][i]),
-                "brake": float(d['brake'][i]),
-            })
+    sort_key = lap_matrix * 1e9 + dist_matrix
+    ranked = np.argsort(-sort_key, axis=0)
 
-        # If for some reason we have no drivers at this instant
-        if not snapshot:
-            continue
+    position_matrix = np.empty_like(ranked)
+    rows = np.arange(num_drivers)[:, None]
+    position_matrix[ranked, np.arange(num_frames)] = rows + 1
 
-        # 5b. Sort by race distance to get POSITIONS (1–20)
-        # Leader = largest race distance covered
-        snapshot.sort(key=lambda r: (r.get("lap", 0), r["dist"]), reverse=True)
+    leader_indices = ranked[0]
+    leader_laps = np.round(lap_matrix[leader_indices, np.arange(num_frames)]).astype(np.int32)
 
-        leader = snapshot[0]
-        leader_lap = leader["lap"]
-
-        # TODO: This 5c. step seems futile currently as we are not using gaps anywhere, and it doesn't even comput the gaps. I think I left this in when removing the "gaps" feature that was half-finished during the initial development.
-
-        # 5c. Compute gap to car in front in SECONDS
-        frame_data = {}
-
-        for idx, car in enumerate(snapshot):
-            code = car["code"]
-            position = idx + 1
-
-            # include speed, gear, drs_active in frame driver dict
-            frame_data[code] = {
-                "x": car["x"],
-                "y": car["y"],
-                "dist": car["dist"],
-                "lap": car["lap"],
-                "rel_dist": round(car["rel_dist"], 4),
-                "tyre": car["tyre"],
-                "tyre_life": car["tyre_life"],
-                "position": position,
-                "speed": car["speed"],
-                "gear": car["gear"],
-                "drs": car["drs"],
-                "throttle": car["throttle"],
-                "brake": car["brake"],
-            }
-
-        weather_snapshot = {}
-        if weather_resampled:
-            try:
-                wt = weather_resampled
-                rain_val = wt["rainfall"][i] if wt.get("rainfall") is not None else 0.0
-                weather_snapshot = {
-                    "track_temp": float(wt["track_temp"][i])
-                    if wt.get("track_temp") is not None
-                    else None,
-                    "air_temp": float(wt["air_temp"][i])
-                    if wt.get("air_temp") is not None
-                    else None,
-                    "humidity": float(wt["humidity"][i])
-                    if wt.get("humidity") is not None
-                    else None,
-                    "wind_speed": float(wt["wind_speed"][i])
-                    if wt.get("wind_speed") is not None
-                    else None,
-                    "wind_direction": float(wt["wind_direction"][i])
-                    if wt.get("wind_direction") is not None
-                    else None,
-                    "rain_state": "RAINING" if rain_val and rain_val >= 0.5 else "DRY",
-                }
-            except Exception as e:
-                print(f"Failed to attach weather data to frame {i}: {e}")
-
-        frame_payload = {
-            "t": round(t, 3),
-            "lap": leader_lap,  # leader's lap at this time
-            "drivers": frame_data,
+    columnar_drivers = {}
+    for di, code in enumerate(driver_codes_list):
+        d = resampled_data[code]
+        columnar_drivers[code] = {
+            "x": np.nan_to_num(d["x"], nan=0.0),
+            "y": np.nan_to_num(d["y"], nan=0.0),
+            "position": position_matrix[di].astype(np.int32),
+            "lap": np.round(d["lap"]).astype(np.int32),
+            "speed": np.nan_to_num(d["speed"], nan=0.0),
+            "tyre": np.round(d["tyre"]).astype(np.int32),
         }
-        if weather_snapshot:
-            frame_payload["weather"] = weather_snapshot
 
-        frames.append(frame_payload)
-    print("completed telemetry extraction...")
+    del lap_matrix, dist_matrix, sort_key, ranked, position_matrix
+    gc.collect()
+
+    print("completed telemetry extraction (columnar)...")
     print("Saving to cache file...")
-    # If computed_data/ directory doesn't exist, create it
     if not os.path.exists("computed_data"):
         os.makedirs("computed_data")
 
-    # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump({
-            "frames": frames,
-            "driver_colors": get_driver_colors(session),
-            "track_statuses": formatted_track_statuses,
-            "total_laps": int(max_lap_number),
-            "max_tyre_life": max_tyre_life_map,
-        }, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    print("Saved Successfully!")
-    print("The replay should begin in a new window shortly")
-    return {
-        "frames": frames,
+    result = {
+        "columnar": True,
+        "timeline": timeline,
+        "leader_laps": leader_laps,
+        "drivers": columnar_drivers,
+        "weather": weather_resampled,
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
         "max_tyre_life": max_tyre_life_map,
     }
+
+    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+        pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    print("Saved Successfully!")
+    print("The replay should begin in a new window shortly")
+    return result
 
 
 def get_qualifying_results(session):

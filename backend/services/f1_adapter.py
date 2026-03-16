@@ -5,6 +5,8 @@ Thin wrapper that calls f1_data and ui_components, converting results to JSON-sa
 import math
 from typing import Any
 
+import numpy as np
+
 from src.f1_data import (
     enable_cache,
     get_circuit_rotation,
@@ -112,9 +114,18 @@ def _get_example_lap(year: int, round_number: int, session_type: str, session):
     return None
 
 
+def _np_to_list(arr) -> list:
+    """Convert a numpy array to a plain Python list, replacing NaN/Inf with 0."""
+    if arr is None:
+        return []
+    cleaned = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    return cleaned.tolist()
+
+
 def get_replay_data(year: int, round_number: int, session_type: str = "R") -> dict:
     """
     Load session, get race telemetry, build track, and return JSON-serializable payload.
+    Now returns the columnar format instead of per-frame dicts.
     """
     enable_cache()
 
@@ -133,28 +144,35 @@ def get_replay_data(year: int, round_number: int, session_type: str = "R") -> di
     track = _serialize_track(track_tuple)
     circuit_rotation = float(get_circuit_rotation(session))
 
-    DRIVER_FIELDS = {"x", "y", "position", "lap", "speed", "tyre"}
+    drivers_columnar = {}
+    for code, arrays in telemetry["drivers"].items():
+        drivers_columnar[code] = {
+            field: _np_to_list(arr)
+            for field, arr in arrays.items()
+        }
 
-    def _slim_frame(frame: dict) -> dict:
-        """Strip per-driver fields the frontend doesn't need to halve payload."""
-        out = {"t": frame["t"], "lap": frame["lap"]}
-        drivers = {}
-        for code, d in frame.get("drivers", {}).items():
-            drivers[code] = {k: d[k] for k in DRIVER_FIELDS if k in d}
-        out["drivers"] = drivers
-        if "weather" in frame:
-            out["weather"] = frame["weather"]
-        return out
+    weather_timeline = None
+    raw_weather = telemetry.get("weather")
+    if raw_weather:
+        weather_timeline = {}
+        for wk, wv in raw_weather.items():
+            weather_timeline[wk] = _np_to_list(wv) if wv is not None else None
+        if weather_timeline.get("rainfall") is not None:
+            rain_arr = np.asarray(raw_weather["rainfall"])
+            weather_timeline["rain_state"] = [
+                "RAINING" if v >= 0.5 else "DRY" for v in np.nan_to_num(rain_arr)
+            ]
 
-    # Slim → sanitize frames — NaN/Inf from numpy interpolation would break JSON
-    sanitized_frames = [_sanitize_dict(_slim_frame(f)) for f in telemetry["frames"]]
-
-    # max_tyre_life may have numpy-float keys; convert to str
     raw_mtl = telemetry.get("max_tyre_life", {})
     max_tyre_life = {str(k): _sanitize(v) for k, v in raw_mtl.items()}
 
     return {
-        "frames": sanitized_frames,
+        "columnar": True,
+        "cache_version": 2,
+        "timeline": _np_to_list(telemetry["timeline"]),
+        "leader_laps": _np_to_list(telemetry["leader_laps"]),
+        "drivers": drivers_columnar,
+        "weather_timeline": weather_timeline,
         "driver_colors": _serialize_driver_colors(telemetry["driver_colors"]),
         "track_statuses": telemetry.get("track_statuses", []),
         "total_laps": int(telemetry["total_laps"]),

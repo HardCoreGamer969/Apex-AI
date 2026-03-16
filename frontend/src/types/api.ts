@@ -8,34 +8,23 @@ export interface Session {
   year?: number;
 }
 
-export interface DriverFrame {
-  x: number;
-  y: number;
-  dist: number;
-  lap: number;
-  position: number;
-  speed: number;
-  gear: number;
-  drs: number;
-  rel_dist: number;
-  tyre: number;
-  tyre_life?: number;
-  throttle?: number;
-  brake?: number;
+export interface ColumnarDriverData {
+  x: number[];
+  y: number[];
+  position: number[];
+  lap: number[];
+  speed: number[];
+  tyre: number[];
 }
 
-export interface Frame {
-  t: number;
-  lap: number;
-  drivers: Record<string, DriverFrame>;
-  weather?: {
-    air_temp?: number;
-    humidity?: number;
-    rain_state?: string;
-    track_temp?: number;
-    wind_direction?: number;
-    wind_speed?: number;
-  };
+export interface WeatherTimeline {
+  air_temp?: number[] | null;
+  track_temp?: number[] | null;
+  humidity?: number[] | null;
+  wind_speed?: number[] | null;
+  wind_direction?: number[] | null;
+  rainfall?: number[] | null;
+  rain_state?: string[] | null;
 }
 
 export interface DRSZone {
@@ -69,7 +58,11 @@ export interface SessionInfo {
 }
 
 export interface ReplayPayload {
-  frames: Frame[];
+  columnar: true;
+  timeline: number[];
+  leader_laps: number[];
+  drivers: Record<string, ColumnarDriverData>;
+  weather_timeline?: WeatherTimeline | null;
   driver_colors: Record<string, string>;
   track_statuses: unknown[];
   total_laps: number;

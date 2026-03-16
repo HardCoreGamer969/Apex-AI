@@ -41,7 +41,7 @@ export default function ReplayViewer() {
     return () => { cancelled = true; };
   }, [year, round, session]);
 
-  const playback = useReplayPlayback(data?.frames ?? []);
+  const playback = useReplayPlayback(data);
 
   if (loading) {
     return (
@@ -75,17 +75,21 @@ export default function ReplayViewer() {
           <TrackCanvas
             track={data.track}
             circuitRotation={data.circuit_rotation}
-            frames={playback.frames}
+            drivers={data.drivers}
             driverColors={data.driver_colors}
             interpRef={playback.interpRef}
           />
         </div>
         <aside className="sidebar">
           <Leaderboard
-            frame={playback.currentFrame}
+            drivers={data.drivers}
+            frameIndex={playback.frameIndex}
             driverColors={data.driver_colors}
           />
-          <WeatherPanel frame={playback.currentFrame} />
+          <WeatherPanel
+            weather={data.weather_timeline}
+            frameIndex={playback.frameIndex}
+          />
         </aside>
       </div>
 
@@ -99,9 +103,9 @@ export default function ReplayViewer() {
           totalFrames={playback.totalFrames}
           playbackSpeed={playback.playbackSpeed}
           onSpeedChange={playback.setSpeed}
-          currentTime={playback.currentFrame?.t ?? 0}
+          currentTime={playback.currentTime}
           totalLaps={data.total_laps}
-          currentLap={playback.currentFrame?.lap ?? 1}
+          currentLap={playback.currentLap}
         />
       </div>
     </div>

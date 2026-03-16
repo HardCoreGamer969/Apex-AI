@@ -16,6 +16,8 @@ from cachetools import TTLCache, LRUCache
 
 logger = logging.getLogger(__name__)
 
+REPLAY_CACHE_VERSION = 2
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -98,8 +100,15 @@ def _quali_key(year: int, round_number: int, session: str) -> str:
 # L2 public API
 # ---------------------------------------------------------------------------
 
+def _version_ok(payload: dict | None) -> bool:
+    """Return True if the cached payload matches the current columnar schema version."""
+    if payload is None:
+        return False
+    return payload.get("cache_version") == REPLAY_CACHE_VERSION
+
+
 def replay_get(year: int, round_number: int, session: str) -> dict | None:
-    """Try to retrieve a cached replay payload. Returns None on miss."""
+    """Try to retrieve a cached replay payload. Returns None on miss or version mismatch."""
     key = _replay_key(year, round_number, session)
 
     sb = _get_supabase()
@@ -108,15 +117,21 @@ def replay_get(year: int, round_number: int, session: str) -> dict | None:
             data = sb.storage.from_(CACHE_BUCKET).download(key)
             if data:
                 decompressed = gzip.decompress(data)
-                logger.info("L2 Supabase hit: %s (%d bytes compressed)", key, len(data))
-                return orjson.loads(decompressed)
+                payload = orjson.loads(decompressed)
+                if _version_ok(payload):
+                    logger.info("L2 Supabase hit: %s (%d bytes compressed)", key, len(data))
+                    return payload
+                logger.info("L2 Supabase stale (version mismatch): %s", key)
         except Exception as e:
             logger.debug("L2 Supabase miss or error for %s: %s", key, e)
 
     cached = _l2_memory.get(key)
     if cached is not None:
-        logger.info("L2 memory hit: %s", key)
-        return cached
+        if _version_ok(cached):
+            logger.info("L2 memory hit: %s", key)
+            return cached
+        logger.info("L2 memory stale (version mismatch): %s", key)
+        _l2_memory.pop(key, None)
 
     return None
 
@@ -125,6 +140,7 @@ def replay_set(year: int, round_number: int, session: str, payload: dict) -> Non
     """Store a replay payload in L2 cache."""
     key = _replay_key(year, round_number, session)
 
+    payload.setdefault("cache_version", REPLAY_CACHE_VERSION)
     _l2_memory[key] = payload
 
     sb = _get_supabase()

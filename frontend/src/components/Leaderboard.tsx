@@ -1,7 +1,8 @@
-import type { Frame } from '../types/api';
+import type { ColumnarDriverData } from '../types/api';
 
 interface LeaderboardProps {
-  frame: Frame | null;
+  drivers: Record<string, ColumnarDriverData>;
+  frameIndex: number;
   driverColors: Record<string, string>;
 }
 
@@ -14,8 +15,9 @@ const TYRE_LABELS: Record<number, string> = {
   5: 'W',
 };
 
-export default function Leaderboard({ frame, driverColors }: LeaderboardProps) {
-  if (!frame?.drivers) {
+export default function Leaderboard({ drivers, frameIndex, driverColors }: LeaderboardProps) {
+  const codes = Object.keys(drivers);
+  if (codes.length === 0) {
     return (
       <div className="leaderboard">
         <h3>Leaderboard</h3>
@@ -24,15 +26,24 @@ export default function Leaderboard({ frame, driverColors }: LeaderboardProps) {
     );
   }
 
-  const drivers = Object.entries(frame.drivers)
-    .map(([code, d]) => ({ code, ...d }))
+  const rows = codes
+    .map((code) => {
+      const d = drivers[code];
+      return {
+        code,
+        position: d.position[frameIndex] ?? 99,
+        lap: d.lap[frameIndex] ?? 0,
+        speed: d.speed[frameIndex] ?? 0,
+        tyre: d.tyre[frameIndex] ?? 0,
+      };
+    })
     .sort((a, b) => a.position - b.position);
 
   return (
     <div className="leaderboard">
       <h3>Leaderboard</h3>
       <ul>
-        {drivers.map((d) => (
+        {rows.map((d) => (
           <li key={d.code}>
             <span
               className="driver-dot"

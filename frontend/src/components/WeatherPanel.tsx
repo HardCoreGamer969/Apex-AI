@@ -1,46 +1,52 @@
-import type { Frame } from '../types/api';
+import type { WeatherTimeline } from '../types/api';
 
 interface WeatherPanelProps {
-  frame: Frame | null;
+  weather: WeatherTimeline | null | undefined;
+  frameIndex: number;
 }
 
-export default function WeatherPanel({ frame }: WeatherPanelProps) {
-  const weather = frame?.weather;
+export default function WeatherPanel({ weather, frameIndex }: WeatherPanelProps) {
   if (!weather) return null;
+
+  const airTemp = weather.air_temp?.[frameIndex];
+  const trackTemp = weather.track_temp?.[frameIndex];
+  const humidity = weather.humidity?.[frameIndex];
+  const windSpeed = weather.wind_speed?.[frameIndex];
+  const rainState = weather.rain_state?.[frameIndex];
 
   return (
     <div className="weather-panel">
       <h3>Weather</h3>
       <div className="weather-grid">
-        {weather.air_temp != null && (
+        {airTemp != null && (
           <div className="weather-item">
             <span className="weather-label">Air</span>
-            <span className="weather-value">{Math.round(weather.air_temp)}°C</span>
+            <span className="weather-value">{Math.round(airTemp)}°C</span>
           </div>
         )}
-        {weather.track_temp != null && (
+        {trackTemp != null && (
           <div className="weather-item">
             <span className="weather-label">Track</span>
-            <span className="weather-value">{Math.round(weather.track_temp)}°C</span>
+            <span className="weather-value">{Math.round(trackTemp)}°C</span>
           </div>
         )}
-        {weather.humidity != null && (
+        {humidity != null && (
           <div className="weather-item">
             <span className="weather-label">Humidity</span>
-            <span className="weather-value">{Math.round(weather.humidity)}%</span>
+            <span className="weather-value">{Math.round(humidity)}%</span>
           </div>
         )}
-        {weather.wind_speed != null && (
+        {windSpeed != null && (
           <div className="weather-item">
             <span className="weather-label">Wind</span>
-            <span className="weather-value">{Math.round(weather.wind_speed)} km/h</span>
+            <span className="weather-value">{Math.round(windSpeed)} km/h</span>
           </div>
         )}
-        {weather.rain_state && (
+        {rainState && (
           <div className="weather-item">
             <span className="weather-label">Conditions</span>
-            <span className={`weather-value ${weather.rain_state === 'RAINING' ? 'rain' : ''}`}>
-              {weather.rain_state === 'RAINING' ? 'Wet' : 'Dry'}
+            <span className={`weather-value ${rainState === 'RAINING' ? 'rain' : ''}`}>
+              {rainState === 'RAINING' ? 'Wet' : 'Dry'}
             </span>
           </div>
         )}
