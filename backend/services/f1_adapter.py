@@ -124,17 +124,32 @@ def _np_to_list(arr) -> list:
     return cleaned.tolist()
 
 
-def get_replay_data(year: int, round_number: int, session_type: str = "R") -> dict:
+def get_replay_data(
+    year: int,
+    round_number: int,
+    session_type: str = "R",
+    keyframe_interval: int = 5,
+) -> dict:
     """
     Load session, get race telemetry, build track, and return JSON-serializable payload.
     Now returns the columnar format instead of per-frame dicts.
+
+    keyframe_interval: seconds between samples. 5 = 1 sample per 5 sec (~10x smaller).
+        0 = full 2fps.
     """
     enable_cache()
 
     session = load_session(year, round_number, session_type)
 
+    if keyframe_interval > 0:
+        target_fps = 1.0 / keyframe_interval
+    else:
+        target_fps = 2.0
+
     if session_type in ("R", "S"):
-        telemetry = get_race_telemetry(session, session_type=session_type, target_fps=2)
+        telemetry = get_race_telemetry(
+            session, session_type=session_type, target_fps=target_fps
+        )
     else:
         raise ValueError(f"Session type {session_type} not supported for replay (use R or S)")
 
@@ -194,6 +209,7 @@ def get_replay_data(year: int, round_number: int, session_type: str = "R") -> di
     return {
         "columnar": True,
         "cache_version": 2,
+        "keyframe_interval": keyframe_interval,
         "timeline": _np_to_list(telemetry["timeline"]),
         "leader_laps": _np_to_list(telemetry["leader_laps"]),
         "drivers": drivers_columnar,

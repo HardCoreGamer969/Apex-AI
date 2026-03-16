@@ -89,6 +89,7 @@ def start_replay_task(
                     year=year,
                     round_number=round_number,
                     session_type=session,
+                    keyframe_interval=5,
                 )
                 update_task(task_id, progress="Saving to cache...")
                 try:

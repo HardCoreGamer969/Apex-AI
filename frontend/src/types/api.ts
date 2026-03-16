@@ -59,6 +59,7 @@ export interface SessionInfo {
 
 export interface ReplayPayload {
   columnar: true;
+  keyframe_interval?: number;  // seconds between keyframes; default 5
   timeline: number[];
   leader_laps: number[];
   drivers: Record<string, ColumnarDriverData>;

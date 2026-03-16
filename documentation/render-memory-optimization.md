@@ -189,3 +189,9 @@ Added `_ON_RENDER` check: skip pickle load and save when `RENDER` env var is set
 **File:** `backend/services/f1_adapter.py`, `frontend/src/hooks/useReplayPlayback.ts`
 
 Backend: `target_fps=2`. Frontend: `DATA_FPS=2`. Saves ~10-15MB; slightly choppier playback.
+
+---
+
+## See also
+
+- [Offload Compute to GitHub Actions and Browser](offload-compute.md) — Pre-compute in CI, keyframe mode, browser interpolation

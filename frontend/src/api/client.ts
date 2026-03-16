@@ -126,10 +126,14 @@ export async function fetchReplay(
   year: number,
   round: number,
   session: 'R' | 'S',
-  _stride?: number,
+  keyframeInterval?: number,
   onProgress?: (msg: string) => void,
 ): Promise<ReplayPayload> {
-  return fetchWithPolling<ReplayPayload>('/replay', { year, round, session }, onProgress);
+  const params: Record<string, string | number> = { year, round, session };
+  if (keyframeInterval !== undefined && keyframeInterval >= 0) {
+    params.keyframe_interval = keyframeInterval;
+  }
+  return fetchWithPolling<ReplayPayload>('/replay', params, onProgress);
 }
 
 export async function fetchQualifying(

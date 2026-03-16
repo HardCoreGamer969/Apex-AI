@@ -1,0 +1,31 @@
+name: Precompute Replay Cache
+
+on:
+  schedule:
+    # Monday 2am UTC
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+jobs:
+  precompute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Precompute to Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PRECOMPUTE_SESSIONS: ${{ vars.PRECOMPUTE_SESSIONS }}
+        run: uv run python scripts/precompute_to_supabase.py

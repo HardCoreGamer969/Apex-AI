@@ -21,6 +21,7 @@ def get_replay(
     year: int = Query(..., ge=2018, description="Season year"),
     round_number: int = Query(..., ge=1, le=24, alias="round", description="Round number"),
     session: str = Query("R", description="Session type: R (Race), S (Sprint)"),
+    keyframe_interval: int = Query(5, ge=0, description="Seconds between keyframes. 5 = smaller payload, browser interpolates. 0 = full 2fps."),
 ):
     """
     Return full replay payload (columnar format).  Checks Supabase cache first.
