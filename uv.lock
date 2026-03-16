@@ -42,7 +42,6 @@ name = "apex-ai"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "arcade" },
     { name = "cachetools" },
     { name = "fastapi" },
     { name = "fastf1" },
@@ -50,15 +49,18 @@ dependencies = [
     { name = "numpy" },
     { name = "orjson" },
     { name = "pandas" },
-    { name = "pyglet" },
-    { name = "pyside6" },
-    { name = "questionary" },
-    { name = "rich" },
     { name = "supabase" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.optional-dependencies]
+desktop = [
+    { name = "arcade" },
+    { name = "pyglet" },
+    { name = "pyside6" },
+    { name = "questionary" },
+    { name = "rich" },
+]
 dev = [
     { name = "httpx" },
     { name = "pytest" },
@@ -66,7 +68,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arcade" },
+    { name = "arcade", marker = "extra == 'desktop'" },
     { name = "cachetools", specifier = ">=7.0.5" },
     { name = "fastapi" },
     { name = "fastf1" },
@@ -75,15 +77,15 @@ requires-dist = [
     { name = "numpy" },
     { name = "orjson", specifier = ">=3.11.7" },
     { name = "pandas" },
-    { name = "pyglet" },
-    { name = "pyside6" },
+    { name = "pyglet", marker = "extra == 'desktop'" },
+    { name = "pyside6", marker = "extra == 'desktop'" },
     { name = "pytest", marker = "extra == 'dev'" },
-    { name = "questionary" },
-    { name = "rich" },
+    { name = "questionary", marker = "extra == 'desktop'" },
+    { name = "rich", marker = "extra == 'desktop'" },
     { name = "supabase", specifier = ">=2.25.1" },
     { name = "uvicorn", extras = ["standard"] },
 ]
-provides-extras = ["dev"]
+provides-extras = ["desktop", "dev"]
 
 [[package]]
 name = "arcade"

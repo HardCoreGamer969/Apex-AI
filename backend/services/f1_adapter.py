@@ -1,5 +1,6 @@
 """
-Thin wrapper that calls f1_data and ui_components, converting results to JSON-safe types.
+Thin wrapper that calls f1_data and track_geometry, converting results to JSON-safe types.
+Uses track_geometry (not ui_components) so the web backend runs without arcade.
 """
 
 import math
@@ -15,7 +16,7 @@ from src.f1_data import (
     get_quali_telemetry,
     load_session,
 )
-from src.ui_components import build_track_from_example_lap
+from src.track_geometry import build_track_from_example_lap
 
 
 def _sanitize(val):

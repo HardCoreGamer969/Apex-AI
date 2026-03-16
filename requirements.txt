@@ -10,8 +10,7 @@ cachetools>=7.0.5
 supabase>=2.25.1
 
 # Desktop GUI (not needed on Render/server deployments)
-# Install with: pip install -r requirements.txt -r requirements-desktop.txt
-# Or: uv sync --extra desktop
+# Install: uv sync  (core) or  uv sync --extra desktop  (with Arcade/PySide6)
 # arcade
 # pyglet
 # pyside6

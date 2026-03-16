@@ -26,7 +26,7 @@ A full-stack web application for visualizing Formula 1 race telemetry and replay
 
 - Python 3.11+
 - Node.js 18+
-- [uv](https://docs.astral.sh/uv/) (recommended for Python)
+- [uv](https://docs.astral.sh/uv/) (required for Python — backend uses `uv sync` and `uv run`)
 
 ### Run Locally
 
