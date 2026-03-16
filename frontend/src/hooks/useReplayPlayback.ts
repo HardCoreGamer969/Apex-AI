@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReplayPayload } from '../types/api';
 
-const DATA_FPS = 5;
+const DATA_FPS = 2;  // Matches backend target_fps for memory optimization
 
 export interface InterpolationState {
   indexA: number;

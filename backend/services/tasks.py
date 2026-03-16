@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 _tasks: dict[str, dict[str, Any]] = {}
 _lock = threading.Lock()
 
+# Only one heavy computation at a time (Render free tier = 512MB)
+_compute_semaphore = threading.Semaphore(1)
+
 # Prevent duplicate computations for the same session
 _active_keys: dict[str, str] = {}  # cache_key -> task_id
 
@@ -76,31 +79,32 @@ def start_replay_task(
     """Run replay computation in a background thread, storing result in Supabase."""
 
     def _worker():
-        from backend.services.cache import replay_set
-        from backend.services.f1_adapter import get_replay_data
+        with _compute_semaphore:
+            from backend.services.cache import replay_set
+            from backend.services.f1_adapter import get_replay_data
 
-        update_task(task_id, status="computing", progress="Loading session...")
-        try:
-            data = get_replay_data(
-                year=year,
-                round_number=round_number,
-                session_type=session,
-            )
-            update_task(task_id, progress="Saving to cache...")
+            update_task(task_id, status="computing", progress="Loading session...")
             try:
-                replay_set(year, round_number, session, data)
-            except Exception as e:
-                logger.warning("Cache write failed for task %s: %s", task_id, e)
+                data = get_replay_data(
+                    year=year,
+                    round_number=round_number,
+                    session_type=session,
+                )
+                update_task(task_id, progress="Saving to cache...")
+                try:
+                    replay_set(year, round_number, session, data)
+                except Exception as e:
+                    logger.warning("Cache write failed for task %s: %s", task_id, e)
 
-            update_task(task_id, status="ready", progress="Done")
-            gc.collect()
-        except Exception as e:
-            logger.exception("Task %s failed: %s", task_id, e)
-            update_task(task_id, status="error", error=str(e))
-        finally:
-            key = _cache_key(year, round_number, session)
-            with _lock:
-                _active_keys.pop(key, None)
+                update_task(task_id, status="ready", progress="Done")
+                gc.collect()
+            except Exception as e:
+                logger.exception("Task %s failed: %s", task_id, e)
+                update_task(task_id, status="error", error=str(e))
+            finally:
+                key = _cache_key(year, round_number, session)
+                with _lock:
+                    _active_keys.pop(key, None)
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
@@ -115,31 +119,32 @@ def start_qualifying_task(
     """Run qualifying computation in a background thread, storing result in Supabase."""
 
     def _worker():
-        from backend.services.cache import quali_set
-        from backend.services.f1_adapter import get_qualifying_data
+        with _compute_semaphore:
+            from backend.services.cache import quali_set
+            from backend.services.f1_adapter import get_qualifying_data
 
-        update_task(task_id, status="computing", progress="Loading qualifying session...")
-        try:
-            data = get_qualifying_data(
-                year=year,
-                round_number=round_number,
-                session_type=session,
-            )
-            update_task(task_id, progress="Saving to cache...")
+            update_task(task_id, status="computing", progress="Loading qualifying session...")
             try:
-                quali_set(year, round_number, session, data)
-            except Exception as e:
-                logger.warning("Cache write failed for quali task %s: %s", task_id, e)
+                data = get_qualifying_data(
+                    year=year,
+                    round_number=round_number,
+                    session_type=session,
+                )
+                update_task(task_id, progress="Saving to cache...")
+                try:
+                    quali_set(year, round_number, session, data)
+                except Exception as e:
+                    logger.warning("Cache write failed for quali task %s: %s", task_id, e)
 
-            update_task(task_id, status="ready", progress="Done")
-            gc.collect()
-        except Exception as e:
-            logger.exception("Qualifying task %s failed: %s", task_id, e)
-            update_task(task_id, status="error", error=str(e))
-        finally:
-            key = _cache_key(year, round_number, session)
-            with _lock:
-                _active_keys.pop(key, None)
+                update_task(task_id, status="ready", progress="Done")
+                gc.collect()
+            except Exception as e:
+                logger.exception("Qualifying task %s failed: %s", task_id, e)
+                update_task(task_id, status="error", error=str(e))
+            finally:
+                key = _cache_key(year, round_number, session)
+                with _lock:
+                    _active_keys.pop(key, None)
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()

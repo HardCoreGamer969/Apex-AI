@@ -134,7 +134,7 @@ def get_replay_data(year: int, round_number: int, session_type: str = "R") -> di
     session = load_session(year, round_number, session_type)
 
     if session_type in ("R", "S"):
-        telemetry = get_race_telemetry(session, session_type=session_type, target_fps=3)
+        telemetry = get_race_telemetry(session, session_type=session_type, target_fps=2)
     else:
         raise ValueError(f"Session type {session_type} not supported for replay (use R or S)")
 
@@ -214,6 +214,24 @@ def get_qualifying_data(year: int, round_number: int, session_type: str = "Q") -
     session = load_session(year, round_number, session_type)
     quali_data = get_quali_telemetry(session, session_type=session_type)
 
+    # Extract session_info before freeing session (saves ~150-250MB on Render)
+    event_date = session.event.get("EventDate", "")
+    session_info = {
+        "event_name": session.event.get("EventName", ""),
+        "circuit_name": session.event.get("Location", ""),
+        "country": session.event.get("Country", ""),
+        "year": year,
+        "round": round_number,
+        "date": (
+            event_date.strftime("%B %d, %Y")
+            if hasattr(event_date, "strftime")
+            else str(event_date)
+        ),
+    }
+
+    del session
+    gc.collect()
+
     # Sanitize results - driver colors are tuples
     results = quali_data.get("results", [])
     sanitized_results = []
@@ -227,16 +245,5 @@ def get_qualifying_data(year: int, round_number: int, session_type: str = "Q") -
         "results": sanitized_results,
         "max_speed": quali_data.get("max_speed", 0),
         "min_speed": quali_data.get("min_speed", 0),
-        "session_info": {
-            "event_name": session.event.get("EventName", ""),
-            "circuit_name": session.event.get("Location", ""),
-            "country": session.event.get("Country", ""),
-            "year": year,
-            "round": round_number,
-            "date": (
-                session.event.get("EventDate", "").strftime("%B %d, %Y")
-                if hasattr(session.event.get("EventDate"), "strftime")
-                else str(session.event.get("EventDate", ""))
-            ),
-        },
+        "session_info": session_info,
     }

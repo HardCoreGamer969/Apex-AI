@@ -831,23 +831,23 @@ def get_quali_telemetry(session, session_type="Q"):
     event_name = str(session).replace(" ", "_")
     cache_suffix = "sprintquali" if session_type == "SQ" else "quali"
 
-    # Check if this data has already been computed
-    try:
-        if "--refresh-data" not in sys.argv:
-            with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
-            ) as f:
-                data = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return data
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+    # Skip pickle on Render (ephemeral disk, saves memory)
+    if not _ON_RENDER:
+        try:
+            if "--refresh-data" not in sys.argv:
+                with open(
+                    f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
+                ) as f:
+                    data = pickle.load(f)
+                    print(f"Loaded precomputed {cache_suffix} telemetry data.")
+                    print("The replay should begin in a new window shortly!")
+                    return data
+        except FileNotFoundError:
+            pass  # Need to compute from scratch
 
     qualifying_results = get_qualifying_results(session)
 
     telemetry_data = {}
-
     max_speed = 0.0
     min_speed = 0.0
 
@@ -855,46 +855,40 @@ def get_quali_telemetry(session, session_type="Q"):
         num: session.get_driver(num)["Abbreviation"] for num in session.drivers
     }
 
-    telemetry_data = {}
-
     driver_args = [(session, driver_codes[driver_no]) for driver_no in session.drivers]
 
     print(f"Processing {len(session.drivers)} drivers sequentially...")
 
-    results = []
+    # Process incrementally: merge each result immediately, then free (saves ~50-100MB)
     for args in driver_args:
         result = _process_quali_driver(args)
-        results.append(result)
-        gc.collect()
-
-    for result in results:
         driver_code = result["driver_code"]
         telemetry_data[driver_code] = {
             "full_name": result["driver_full_name"],
             **result["driver_telemetry_data"],
         }
-
         if result["max_speed"] > max_speed:
             max_speed = result["max_speed"]
         if result["min_speed"] < min_speed or min_speed == 0.0:
             min_speed = result["min_speed"]
+        del result
+        gc.collect()
 
-    # Save to the compute_data directory
-
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
-
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump(
-            {
-                "results": qualifying_results,
-                "telemetry": telemetry_data,
-                "max_speed": max_speed,
-                "min_speed": min_speed,
-            },
-            f,
-            protocol=pickle.HIGHEST_PROTOCOL,
-        )
+    # Save to computed_data (skip on Render)
+    if not _ON_RENDER:
+        if not os.path.exists("computed_data"):
+            os.makedirs("computed_data")
+        with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+            pickle.dump(
+                {
+                    "results": qualifying_results,
+                    "telemetry": telemetry_data,
+                    "max_speed": max_speed,
+                    "min_speed": min_speed,
+                },
+                f,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
 
     return {
         "results": qualifying_results,

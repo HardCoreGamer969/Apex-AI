@@ -149,3 +149,43 @@ _l2_memory: LRUCache = LRUCache(maxsize=1 if (SUPABASE_URL and SUPABASE_KEY) els
 
 - **target_fps=3:** Playback may feel slightly less smooth than 5fps. Consider 4fps as a compromise if needed.
 - **No L2 memory cache when Supabase used:** Repeated requests for the same session fetch from Supabase each time instead of from memory. Latency may increase slightly for hot sessions, but memory stays low.
+
+---
+
+## Phase 3: Additional Optimizations (Under 500MB)
+
+### 1. Single-task semaphore
+
+**File:** `backend/services/tasks.py`
+
+Added `_compute_semaphore = threading.Semaphore(1)` so only one replay or qualifying computation runs at a time. Prevents 2x memory spike when two uncached sessions are requested concurrently.
+
+### 2. Qualifying session cleanup
+
+**File:** `backend/services/f1_adapter.py`
+
+Extract `session_info` from session, then `del session; gc.collect()` before building the return dict. Frees ~150-250MB earlier.
+
+### 3. Qualifying incremental driver processing
+
+**File:** `src/f1_data.py`
+
+In `get_quali_telemetry`, merge each driver result into `telemetry_data` immediately, then `del result; gc.collect()`. Never hold all 20 drivers' telemetry in memory. Saves ~50-100MB.
+
+### 4. Skip qualifying pickle on Render
+
+**File:** `src/f1_data.py`
+
+Added `_ON_RENDER` check: skip pickle load and save when `RENDER` env var is set. Saves disk I/O and minor memory.
+
+### 5. Reduce L1 cache (200 → 50)
+
+**File:** `backend/services/cache.py`
+
+`TTLCache(maxsize=50)` instead of 200. Saves ~5-15MB.
+
+### 6. Reduce target_fps (3 → 2)
+
+**File:** `backend/services/f1_adapter.py`, `frontend/src/hooks/useReplayPlayback.ts`
+
+Backend: `target_fps=2`. Frontend: `DATA_FPS=2`. Saves ~10-15MB; slightly choppier playback.

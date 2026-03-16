@@ -30,7 +30,7 @@ L1_TTL_SECONDS = int(os.environ.get("CACHE_SESSIONS_TTL", str(24 * 3600)))
 # ---------------------------------------------------------------------------
 # L1: In-memory cache for sessions / race-names (small, fast, TTL-based)
 # ---------------------------------------------------------------------------
-_l1_cache: TTLCache = TTLCache(maxsize=200, ttl=L1_TTL_SECONDS)
+_l1_cache: TTLCache = TTLCache(maxsize=50, ttl=L1_TTL_SECONDS)
 
 
 def l1_get(key: str) -> Any | None:
