@@ -94,6 +94,16 @@ Apex-AI/
 - **Frontend:** Deploy `frontend/` to Vercel. Set `VITE_API_URL` to your backend URL.
 - **Backend:** Deploy to Render (or similar) using `render.yaml`. Set `CORS_ORIGINS` to your frontend URL(s).
 
+## Future Plans & Documentation
+
+Planned features and technical documentation live in the [`documentation/`](documentation/) folder:
+
+| Document | Description |
+|----------|-------------|
+| [Desktop EXE and Pipeline](documentation/desktop-exe-and-pipeline.md) | Plan for Windows .exe desktop build (Electron + PyInstaller) and unified web/desktop feature pipeline |
+| [Render Memory Optimization](documentation/render-memory-optimization.md) | Backend memory optimizations for Render free tier |
+| [Offload Compute](documentation/offload-compute.md) | Pre-compute in CI, keyframe mode, browser interpolation |
+
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](./LICENSE) for the full text.
