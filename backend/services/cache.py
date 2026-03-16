@@ -47,7 +47,7 @@ def l1_set(key: str, value: Any) -> None:
 _supabase_client = None
 _supabase_available = False
 
-_l2_memory: LRUCache = LRUCache(maxsize=2)  # Keep small for 512MB Render free tier
+_l2_memory: LRUCache = LRUCache(maxsize=1 if (SUPABASE_URL and SUPABASE_KEY) else 2)
 
 
 def _get_supabase():
@@ -124,14 +124,14 @@ def replay_get(year: int, round_number: int, session: str) -> dict | None:
                 logger.info("L2 Supabase stale (version mismatch): %s", key)
         except Exception as e:
             logger.debug("L2 Supabase miss or error for %s: %s", key, e)
-
-    cached = _l2_memory.get(key)
-    if cached is not None:
-        if _version_ok(cached):
-            logger.info("L2 memory hit: %s", key)
-            return cached
-        logger.info("L2 memory stale (version mismatch): %s", key)
-        _l2_memory.pop(key, None)
+    else:
+        cached = _l2_memory.get(key)
+        if cached is not None:
+            if _version_ok(cached):
+                logger.info("L2 memory hit: %s", key)
+                return cached
+            logger.info("L2 memory stale (version mismatch): %s", key)
+            _l2_memory.pop(key, None)
 
     return None
 
@@ -141,7 +141,6 @@ def replay_set(year: int, round_number: int, session: str, payload: dict) -> Non
     key = _replay_key(year, round_number, session)
 
     payload.setdefault("cache_version", REPLAY_CACHE_VERSION)
-    _l2_memory[key] = payload
 
     sb = _get_supabase()
     if sb and _supabase_available:
@@ -159,6 +158,8 @@ def replay_set(year: int, round_number: int, session: str, payload: dict) -> Non
             _evict_if_needed(sb)
         except Exception as e:
             logger.warning("L2 Supabase write failed for %s: %s", key, e)
+    else:
+        _l2_memory[key] = payload
 
 
 def quali_get(year: int, round_number: int, session: str) -> dict | None:
@@ -175,11 +176,11 @@ def quali_get(year: int, round_number: int, session: str) -> dict | None:
                 return orjson.loads(decompressed)
         except Exception as e:
             logger.debug("L2 Supabase quali miss or error for %s: %s", key, e)
-
-    cached = _l2_memory.get(key)
-    if cached is not None:
-        logger.info("L2 memory quali hit: %s", key)
-        return cached
+    else:
+        cached = _l2_memory.get(key)
+        if cached is not None:
+            logger.info("L2 memory quali hit: %s", key)
+            return cached
 
     return None
 
@@ -187,8 +188,6 @@ def quali_get(year: int, round_number: int, session: str) -> dict | None:
 def quali_set(year: int, round_number: int, session: str, payload: dict) -> None:
     """Store qualifying data in L2 cache."""
     key = _quali_key(year, round_number, session)
-
-    _l2_memory[key] = payload
 
     sb = _get_supabase()
     if sb and _supabase_available:
@@ -205,6 +204,8 @@ def quali_set(year: int, round_number: int, session: str, payload: dict) -> None
             logger.info("L2 Supabase quali stored: %s (%d bytes)", key, len(compressed))
         except Exception as e:
             logger.warning("L2 Supabase quali write failed for %s: %s", key, e)
+    else:
+        _l2_memory[key] = payload
 
 
 def _evict_if_needed(sb) -> None:

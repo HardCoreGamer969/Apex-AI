@@ -3,6 +3,7 @@ Thin wrapper that calls f1_data and track_geometry, converting results to JSON-s
 Uses track_geometry (not ui_components) so the web backend runs without arcade.
 """
 
+import gc
 import math
 from typing import Any
 
@@ -133,7 +134,7 @@ def get_replay_data(year: int, round_number: int, session_type: str = "R") -> di
     session = load_session(year, round_number, session_type)
 
     if session_type in ("R", "S"):
-        telemetry = get_race_telemetry(session, session_type=session_type, target_fps=5)
+        telemetry = get_race_telemetry(session, session_type=session_type, target_fps=3)
     else:
         raise ValueError(f"Session type {session_type} not supported for replay (use R or S)")
 
@@ -144,6 +145,29 @@ def get_replay_data(year: int, round_number: int, session_type: str = "R") -> di
     track_tuple = build_track_from_example_lap(example_lap)
     track = _serialize_track(track_tuple)
     circuit_rotation = float(get_circuit_rotation(session))
+
+    event_date = session.event.get("EventDate", "")
+    session_info = {
+        "event_name": session.event.get("EventName", ""),
+        "circuit_name": session.event.get("Location", ""),
+        "country": session.event.get("Country", ""),
+        "year": year,
+        "round": round_number,
+        "date": (
+            event_date.strftime("%B %d, %Y")
+            if hasattr(event_date, "strftime")
+            else str(event_date)
+        ),
+        "total_laps": int(telemetry["total_laps"]),
+        "circuit_length_m": (
+            float(example_lap["Distance"].max())
+            if "Distance" in example_lap
+            else None
+        ),
+    }
+
+    del session, example_lap, track_tuple
+    gc.collect()
 
     drivers_columnar = {}
     for code, arrays in telemetry["drivers"].items():
@@ -180,24 +204,7 @@ def get_replay_data(year: int, round_number: int, session_type: str = "R") -> di
         "max_tyre_life": max_tyre_life,
         "track": track,
         "circuit_rotation": circuit_rotation,
-        "session_info": {
-            "event_name": session.event.get("EventName", ""),
-            "circuit_name": session.event.get("Location", ""),
-            "country": session.event.get("Country", ""),
-            "year": year,
-            "round": round_number,
-            "date": (
-                session.event.get("EventDate", "").strftime("%B %d, %Y")
-                if hasattr(session.event.get("EventDate"), "strftime")
-                else str(session.event.get("EventDate", ""))
-            ),
-            "total_laps": int(telemetry["total_laps"]),
-            "circuit_length_m": (
-                float(example_lap["Distance"].max())
-                if "Distance" in example_lap
-                else None
-            ),
-        },
+        "session_info": session_info,
     }
 
 

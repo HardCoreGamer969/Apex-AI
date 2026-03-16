@@ -30,6 +30,8 @@ def enable_cache():
 FPS = 25
 DT = 1 / FPS
 
+_ON_RENDER = bool(os.environ.get("RENDER"))
+
 
 def _process_single_driver(args):
     """Process telemetry data for a single driver - must be top-level for multiprocessing"""
@@ -185,17 +187,18 @@ def get_race_telemetry(session, session_type="R", target_fps=None):
     event_name = str(session).replace(" ", "_")
     cache_suffix = "sprint" if session_type == "S" else "race"
 
-    try:
-        if "--refresh-data" not in sys.argv:
-            with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
-            ) as f:
-                frames = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return frames
-    except FileNotFoundError:
-        pass
+    if not _ON_RENDER:
+        try:
+            if "--refresh-data" not in sys.argv:
+                with open(
+                    f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
+                ) as f:
+                    frames = pickle.load(f)
+                    print(f"Loaded precomputed {cache_suffix} telemetry data.")
+                    print("The replay should begin in a new window shortly!")
+                    return frames
+        except FileNotFoundError:
+            pass
 
     drivers = session.drivers
 
@@ -208,20 +211,17 @@ def get_race_telemetry(session, session_type="R", target_fps=None):
 
     max_lap_number = 0
 
-    # 1. Process each driver's telemetry sequentially to stay within 512MB RAM
+    # 1. Process each driver's telemetry sequentially and consume immediately
     print(f"Processing {len(drivers)} drivers sequentially...")
     driver_args = [
         (driver_no, session, driver_codes[driver_no]) for driver_no in drivers
     ]
 
-    results = []
     for args in driver_args:
         result = _process_single_driver(args)
-        results.append(result)
-        gc.collect()
-
-    for result in results:
         if result is None:
+            del result
+            gc.collect()
             continue
 
         code = result["code"]
@@ -233,6 +233,9 @@ def get_race_telemetry(session, session_type="R", target_fps=None):
 
         global_t_min = t_min if global_t_min is None else min(global_t_min, t_min)
         global_t_max = t_max if global_t_max is None else max(global_t_max, t_max)
+
+        del result
+        gc.collect()
 
     # Ensure we have valid time bounds
     if global_t_min is None or global_t_max is None:
@@ -403,14 +406,12 @@ def get_race_telemetry(session, session_type="R", target_fps=None):
             "speed": np.nan_to_num(d["speed"], nan=0.0),
             "tyre": np.round(d["tyre"]).astype(np.int32),
         }
+        del resampled_data[code]
 
-    del lap_matrix, dist_matrix, sort_key, ranked, position_matrix
+    del resampled_data, lap_matrix, dist_matrix, sort_key, ranked, position_matrix
     gc.collect()
 
     print("completed telemetry extraction (columnar)...")
-    print("Saving to cache file...")
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
 
     result = {
         "columnar": True,
@@ -424,10 +425,16 @@ def get_race_telemetry(session, session_type="R", target_fps=None):
         "max_tyre_life": max_tyre_life_map,
     }
 
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
+    if not _ON_RENDER:
+        print("Saving to cache file...")
+        if not os.path.exists("computed_data"):
+            os.makedirs("computed_data")
 
-    print("Saved Successfully!")
+        with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+            pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        print("Saved Successfully!")
+
     print("The replay should begin in a new window shortly")
     return result
 
