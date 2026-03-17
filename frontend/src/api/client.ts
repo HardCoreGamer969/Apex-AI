@@ -2,8 +2,10 @@ import type { ReplayPayload, Session, QualifyingPayload } from '../types/api';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-const REPLAY_TIMEOUT_MS = 300_000; // 5 min overall timeout for polling loop
+const REPLAY_TIMEOUT_MS = 480_000; // 8 min overall timeout — covers worst-case full race + cold start
 const POLL_INTERVAL_MS = 4_000;
+const RETRY_EXTENSION_MS = 120_000; // Extra 2 min per retry cycle after deadline
+const MAX_RETRY_CYCLES = 2;
 
 interface TaskStatus {
   task_id: string;
@@ -67,7 +69,9 @@ async function fetchWithPolling<T>(
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
   }
 
-  const deadline = Date.now() + REPLAY_TIMEOUT_MS;
+  const startTime = Date.now();
+  let deadline = startTime + REPLAY_TIMEOUT_MS;
+  let retryCycles = 0;
 
   const res = await fetch(url.toString());
   if (!res.ok && res.status !== 202) {
@@ -87,6 +91,9 @@ async function fetchWithPolling<T>(
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 
+    // Tiered progress messages based on elapsed time
+    const elapsed = Date.now() - startTime;
+
     try {
       const status = await fetchApi<TaskStatus>('/replay/status', { task_id: taskId });
 
@@ -99,7 +106,16 @@ async function fetchWithPolling<T>(
         throw new Error(status.error ?? 'Computation failed on server');
       }
 
-      onProgress?.(status.progress ?? 'Computing...');
+      // Show backend progress if available, otherwise use tiered messages
+      if (status.progress && status.progress !== 'Computing...') {
+        onProgress?.(status.progress);
+      } else if (elapsed > 90_000) {
+        onProgress?.('Almost there — finishing up...');
+      } else if (elapsed > 30_000) {
+        onProgress?.('Large sessions can take a few minutes — still working...');
+      } else {
+        onProgress?.('Computing session data...');
+      }
     } catch (err) {
       if (err instanceof Error && err.message.includes('Unknown task_id')) {
         // Instance may have restarted; retry original request - cache may be populated
@@ -123,7 +139,50 @@ async function fetchWithPolling<T>(
     }
   }
 
-  throw new Error('Timed out waiting for session computation. Please try again.');
+  // Deadline expired — auto-retry: re-fetch the original endpoint.
+  // Computation may have finished just after our deadline; if so the cache will serve it immediately.
+  while (retryCycles < MAX_RETRY_CYCLES) {
+    retryCycles++;
+    onProgress?.(`Session is taking longer than expected — retrying (${retryCycles}/${MAX_RETRY_CYCLES})...`);
+
+    const retryRes = await fetch(url.toString());
+    if (!retryRes.ok && retryRes.status !== 202) {
+      const text = await retryRes.text();
+      throw new Error(`API error ${retryRes.status}: ${text}`);
+    }
+    const retryBody = await retryRes.json();
+
+    // Cache was populated — return immediately
+    if (retryRes.status !== 202) {
+      onProgress?.('Loading cached data...');
+      return retryBody as T;
+    }
+
+    // Still computing — extend deadline and keep polling
+    taskId = retryBody.task_id;
+    deadline = Date.now() + RETRY_EXTENSION_MS;
+
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      try {
+        const status = await fetchApi<TaskStatus>('/replay/status', { task_id: taskId });
+        if (status.status === 'ready') {
+          onProgress?.('Loading cached data...');
+          return fetchApi<T>(path, params, { timeoutMs: 60_000 });
+        }
+        if (status.status === 'error') {
+          throw new Error(status.error ?? 'Computation failed on server');
+        }
+        onProgress?.(status.progress ?? 'Still computing...');
+      } catch (err) {
+        if (err instanceof Error && (err.message.includes('API error') || err.message.includes('Computation failed'))) {
+          throw err;
+        }
+      }
+    }
+  }
+
+  throw new Error('Session computation is taking too long. Please try again in a few minutes.');
 }
 
 export async function fetchSessions(year?: number, place?: string): Promise<Session[]> {
