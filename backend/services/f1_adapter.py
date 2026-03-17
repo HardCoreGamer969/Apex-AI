@@ -15,6 +15,7 @@ from src.f1_data import (
     get_driver_colors,
     get_race_telemetry,
     get_quali_telemetry,
+    get_qualifying_results,
     load_session,
 )
 from src.track_geometry import build_track_from_example_lap
@@ -206,17 +207,26 @@ def get_replay_data(
     raw_mtl = telemetry.get("max_tyre_life", {})
     max_tyre_life = {str(k): _sanitize(v) for k, v in raw_mtl.items()}
 
+    # Extract all remaining references from telemetry before freeing the numpy arrays
+    timeline_list = _np_to_list(telemetry["timeline"])
+    leader_laps_list = _np_to_list(telemetry["leader_laps"])
+    driver_colors_out = _serialize_driver_colors(telemetry["driver_colors"])
+    track_statuses = telemetry.get("track_statuses", [])
+    total_laps = int(telemetry["total_laps"])
+    del telemetry
+    gc.collect()
+
     return {
         "columnar": True,
         "cache_version": 2,
         "keyframe_interval": keyframe_interval,
-        "timeline": _np_to_list(telemetry["timeline"]),
-        "leader_laps": _np_to_list(telemetry["leader_laps"]),
+        "timeline": timeline_list,
+        "leader_laps": leader_laps_list,
         "drivers": drivers_columnar,
         "weather_timeline": weather_timeline,
-        "driver_colors": _serialize_driver_colors(telemetry["driver_colors"]),
-        "track_statuses": telemetry.get("track_statuses", []),
-        "total_laps": int(telemetry["total_laps"]),
+        "driver_colors": driver_colors_out,
+        "track_statuses": track_statuses,
+        "total_laps": total_laps,
         "max_tyre_life": max_tyre_life,
         "track": track,
         "circuit_rotation": circuit_rotation,
@@ -225,10 +235,13 @@ def get_replay_data(
 
 
 def get_qualifying_data(year: int, round_number: int, session_type: str = "Q") -> dict:
-    """Load qualifying session and return results + driver colors."""
+    """Load qualifying session and return results + driver colors.
+    Loads without telemetry (saves ~150-400MB) since only session.results is needed.
+    """
     enable_cache()
-    session = load_session(year, round_number, session_type)
-    quali_data = get_quali_telemetry(session, session_type=session_type)
+    session = load_session(year, round_number, session_type, telemetry=False, weather=False)
+    raw_results = get_qualifying_results(session)
+    quali_data = {"results": raw_results, "max_speed": 0, "min_speed": 0}
 
     # Extract session_info before freeing session (saves ~150-250MB on Render)
     event_date = session.event.get("EventDate", "")

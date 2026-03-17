@@ -116,6 +116,7 @@ def start_replay_task(
                 key = _cache_key(year, round_number, session)
                 with _lock:
                     _active_keys.pop(key, None)
+                cleanup_old_tasks()
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
@@ -156,6 +157,7 @@ def start_qualifying_task(
                 key = _cache_key(year, round_number, session)
                 with _lock:
                     _active_keys.pop(key, None)
+                cleanup_old_tasks()
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()

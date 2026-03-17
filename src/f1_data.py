@@ -146,10 +146,10 @@ def _process_single_driver(args):
     }
 
 
-def load_session(year, round_number, session_type="R"):
+def load_session(year, round_number, session_type="R", telemetry=True, weather=True):
     # session_type: 'R' (Race), 'S' (Sprint) etc.
     session = fastf1.get_session(year, round_number, session_type)
-    session.load(telemetry=True, weather=True)
+    session.load(telemetry=telemetry, weather=weather)
     return session
 
 
@@ -249,7 +249,9 @@ def get_race_telemetry(session, session_type="R", target_fps=None):
     resampled_data = {}
     max_tyre_life_map = {}
 
-    for code, data in driver_data.items():
+    codes = list(driver_data.keys())
+    for code in codes:
+        data = driver_data.pop(code)  # free each driver's raw arrays immediately after use
         t = data["t"] - global_t_min  # Shift
 
         # ensure sorted by time

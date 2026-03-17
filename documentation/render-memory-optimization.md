@@ -192,6 +192,150 @@ Backend: `target_fps=2`. Frontend: `DATA_FPS=2`. Saves ~10-15MB; slightly choppi
 
 ---
 
+## Phase 4: Cache-Hit Passthrough + Qualifying Overhaul
+
+### Problem
+
+Even with all prior optimizations, two major memory spikes remained:
+
+1. **Every cache hit** (the common case) was decompress → parse → re-serialize → re-compress: up to **120–195MB** just to serve data already stored in Supabase.
+2. **Qualifying cache-miss** triggered `get_quali_telemetry` which processed 20 drivers × 3 Q-segments = 60 full per-frame telemetry extractions — **all discarded** since the caller only used `results`, `max_speed`, `min_speed`.
+3. **`_tasks` dict** accumulated indefinitely; `cleanup_old_tasks()` existed but required manual `/admin/cleanup` calls.
+4. **`driver_data` and `resampled_data`** coexisted fully during the resampling loop.
+5. **`telemetry` numpy dict** stayed alive through the entire return dict construction.
+
+---
+
+### 1. Gzip Passthrough for Supabase Cache Hits
+
+**Files:** `backend/services/cache.py`, `backend/routers/replay.py`
+
+**Estimated savings: 100–200MB per cache-hit request**
+
+Added `replay_get_compressed()` and `quali_get_compressed()` in `cache.py`. These return the raw gzip bytes from Supabase without decompressing, parsing, or re-serializing.
+
+In `replay.py`, both `get_replay` and `get_qualifying` now try this fast path first:
+
+```python
+raw_gz = replay_get_compressed(year, round_number, session)
+if raw_gz:
+    return Response(
+        content=raw_gz,
+        media_type="application/json",
+        headers={"Content-Encoding": "gzip"},
+    )
+```
+
+Starlette's `GZipMiddleware` detects the pre-set `Content-Encoding: gzip` header and skips re-compression. The browser receives and decompresses the payload transparently.
+
+The old path (decompress → parse → re-serialize, ~120–195MB peak) is retained as a fallback for the in-memory LRU case (when Supabase is not configured).
+
+---
+
+### 2. Skip Full Telemetry in Qualifying
+
+**Files:** `src/f1_data.py`, `backend/services/f1_adapter.py`
+
+**Estimated savings: 300–400MB per qualifying cache-miss computation**
+
+`get_qualifying_data` previously called `get_quali_telemetry(session)`, which ran 20 drivers × 3 Q-segments of frame-by-frame telemetry extraction. The `telemetry` key in the return value was **never accessed by the caller** — only `results`, `max_speed`, and `min_speed` were used.
+
+Two changes:
+
+**`src/f1_data.py`** — `load_session` now accepts optional `telemetry` and `weather` kwargs (both default `True` for backward compatibility):
+
+```python
+def load_session(year, round_number, session_type="R", telemetry=True, weather=True):
+    session = fastf1.get_session(year, round_number, session_type)
+    session.load(telemetry=telemetry, weather=weather)
+    return session
+```
+
+**`backend/services/f1_adapter.py`** — `get_qualifying_data` now loads without telemetry and calls `get_qualifying_results` directly:
+
+```python
+session = load_session(year, round_number, session_type, telemetry=False, weather=False)
+raw_results = get_qualifying_results(session)
+quali_data = {"results": raw_results, "max_speed": 0, "min_speed": 0}
+```
+
+`get_quali_telemetry` in `f1_data.py` is unchanged — it is still used by the desktop entry point.
+
+---
+
+### 3. Auto-Cleanup Completed Tasks
+
+**File:** `backend/services/tasks.py`
+
+`cleanup_old_tasks()` (removes tasks older than 1 hour in `ready`/`error` state) is now called automatically in the `finally` block of both `start_replay_task._worker` and `start_qualifying_task._worker`, after each computation completes. No manual `/admin/cleanup` required.
+
+---
+
+### 4. Incremental `driver_data` Deletion During Resampling
+
+**File:** `src/f1_data.py`
+
+**Estimated savings: 15–25MB peak**
+
+The resampling loop now pops each driver's raw data immediately after resampling, rather than holding all of `driver_data` until the loop ends:
+
+```python
+codes = list(driver_data.keys())
+for code in codes:
+    data = driver_data.pop(code)  # free immediately after use
+    # ... resample onto timeline ...
+    resampled_data[code] = { ... }
+```
+
+---
+
+### 5. Free `telemetry` Dict Before Building Return Dict
+
+**File:** `backend/services/f1_adapter.py`
+
+**Estimated savings: 10–20MB**
+
+In `get_replay_data`, all values needed from `telemetry` are extracted to locals before the return dict is assembled, then the numpy-array dict is explicitly freed:
+
+```python
+timeline_list = _np_to_list(telemetry["timeline"])
+leader_laps_list = _np_to_list(telemetry["leader_laps"])
+driver_colors_out = _serialize_driver_colors(telemetry["driver_colors"])
+track_statuses = telemetry.get("track_statuses", [])
+total_laps = int(telemetry["total_laps"])
+del telemetry
+gc.collect()
+```
+
+---
+
+### 6. Uvicorn Tuning
+
+**File:** `render.yaml`
+
+Added `--no-access-log` (removes one I/O write per request) and `--timeout-keep-alive 5` (faster idle connection cleanup) to the start command:
+
+```yaml
+startCommand: uv run uvicorn backend.main:app --host 0.0.0.0 --port $PORT --no-access-log --timeout-keep-alive 5
+```
+
+---
+
+### Phase 4 Summary
+
+| Optimization | File(s) | Cache-Hit Saving | Compute Saving |
+|---|---|---|---|
+| Gzip passthrough | cache.py, replay.py | 100–200MB | — |
+| Skip qualifying telemetry | f1_data.py, f1_adapter.py | — | 300–400MB |
+| Auto-cleanup tasks | tasks.py | leak prevented | leak prevented |
+| Incremental driver_data pop | f1_data.py | — | 15–25MB |
+| Free telemetry dict early | f1_adapter.py | 10–20MB | 10–20MB |
+| Uvicorn tuning | render.yaml | I/O only | I/O only |
+
+After Phase 4, qualifying cache-miss peak drops from ~450MB+ (OOM risk on 512MB) to well under 200MB. Cache-hit requests (the common case) now use negligible memory beyond the compressed bytes (~10–15MB).
+
+---
+
 ## See also
 
 - [Offload Compute to GitHub Actions and Browser](offload-compute.md) — Pre-compute in CI, keyframe mode, browser interpolation

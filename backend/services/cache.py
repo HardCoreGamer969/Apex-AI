@@ -162,6 +162,24 @@ def replay_set(year: int, round_number: int, session: str, payload: dict) -> Non
         _l2_memory[key] = payload
 
 
+def replay_get_compressed(year: int, round_number: int, session: str) -> bytes | None:
+    """Return raw gzip bytes from Supabase — avoids decompress+parse+re-encode cycle.
+    Returns None if Supabase is unavailable or on any error (caller falls back to replay_get).
+    Version check intentionally skipped: replay_set always writes the current REPLAY_CACHE_VERSION."""
+    key = _replay_key(year, round_number, session)
+    sb = _get_supabase()
+    if not (sb and _supabase_available):
+        return None
+    try:
+        data = sb.storage.from_(CACHE_BUCKET).download(key)
+        if data:
+            logger.info("L2 Supabase compressed hit: %s (%d bytes)", key, len(data))
+            return bytes(data)
+    except Exception as e:
+        logger.debug("L2 Supabase compressed miss for %s: %s", key, e)
+    return None
+
+
 def quali_get(year: int, round_number: int, session: str) -> dict | None:
     """Try to retrieve cached qualifying data. Returns None on miss."""
     key = _quali_key(year, round_number, session)
@@ -182,6 +200,22 @@ def quali_get(year: int, round_number: int, session: str) -> dict | None:
             logger.info("L2 memory quali hit: %s", key)
             return cached
 
+    return None
+
+
+def quali_get_compressed(year: int, round_number: int, session: str) -> bytes | None:
+    """Return raw gzip bytes from Supabase for qualifying — avoids decompress+parse+re-encode cycle."""
+    key = _quali_key(year, round_number, session)
+    sb = _get_supabase()
+    if not (sb and _supabase_available):
+        return None
+    try:
+        data = sb.storage.from_(CACHE_BUCKET).download(key)
+        if data:
+            logger.info("L2 Supabase quali compressed hit: %s (%d bytes)", key, len(data))
+            return bytes(data)
+    except Exception as e:
+        logger.debug("L2 Supabase quali compressed miss for %s: %s", key, e)
     return None
 
 

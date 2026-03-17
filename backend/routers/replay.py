@@ -7,7 +7,11 @@ import orjson
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
-from backend.services.cache import replay_get, replay_set, quali_get, quali_set
+from backend.services.cache import (
+    replay_get, replay_set,
+    quali_get, quali_set,
+    replay_get_compressed, quali_get_compressed,
+)
 from backend.services.f1_adapter import get_replay_data
 from backend.services import tasks
 
@@ -32,11 +36,26 @@ def get_replay(
         raise HTTPException(status_code=400, detail="session must be R (Race) or S (Sprint)")
 
     try:
+        # Fast path: serve raw gzip bytes directly — skips decompress+parse+re-encode (~100-200MB saving)
+        try:
+            raw_gz = replay_get_compressed(year, round_number, session)
+            if raw_gz:
+                logger.info("Serving replay (compressed passthrough): %d/%d/%s", year, round_number, session)
+                gc.collect()
+                return Response(
+                    content=raw_gz,
+                    media_type="application/json",
+                    headers={"Content-Encoding": "gzip"},
+                )
+        except Exception as e:
+            logger.warning("Compressed cache read failed, falling back to dict path: %s", e)
+
+        # Slow path: in-memory LRU fallback (no Supabase, or compressed path failed)
         data = None
         try:
             data = replay_get(year, round_number, session)
             if data:
-                logger.info("Serving replay from cache: %d/%d/%s", year, round_number, session)
+                logger.info("Serving replay from memory cache: %d/%d/%s", year, round_number, session)
         except Exception as e:
             logger.warning("Cache read failed: %s", e)
 
@@ -92,11 +111,26 @@ def get_qualifying(
         raise HTTPException(status_code=400, detail="session must be Q or SQ")
 
     try:
+        # Fast path: serve raw gzip bytes directly
+        try:
+            raw_gz = quali_get_compressed(year, round_number, session)
+            if raw_gz:
+                logger.info("Serving qualifying (compressed passthrough): %d/%d/%s", year, round_number, session)
+                gc.collect()
+                return Response(
+                    content=raw_gz,
+                    media_type="application/json",
+                    headers={"Content-Encoding": "gzip"},
+                )
+        except Exception as e:
+            logger.warning("Compressed qualifying cache read failed, falling back: %s", e)
+
+        # Slow path: in-memory LRU fallback
         data = None
         try:
             data = quali_get(year, round_number, session)
             if data:
-                logger.info("Serving qualifying from cache: %d/%d/%s", year, round_number, session)
+                logger.info("Serving qualifying from memory cache: %d/%d/%s", year, round_number, session)
         except Exception as e:
             logger.warning("Qualifying cache read failed: %s", e)
 
