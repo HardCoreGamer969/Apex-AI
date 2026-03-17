@@ -1,0 +1,51 @@
+{
+  "appId": "com.apexai.raceviewer",
+  "productName": "ApexAI",
+  "copyright": "Copyright © 2026 ApexAI",
+  "directories": {
+    "output": "dist",
+    "buildResources": "assets"
+  },
+  "files": [
+    "main.js",
+    "preload.js",
+    "assets/**"
+  ],
+  "extraResources": [
+    {
+      "from": "../desktop-backend/dist/apex-ai-backend",
+      "to": "apex-ai-backend",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "../frontend/dist",
+      "to": "frontend-dist",
+      "filter": ["**/*"]
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "assets/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "ApexAI",
+    "include": "installer-extras.nsh"
+  },
+  "portable": {
+    "artifactName": "ApexAI-portable.exe"
+  },
+  "publish": null
+}

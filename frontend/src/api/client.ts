@@ -1,11 +1,12 @@
 import type { ReplayPayload, Session, QualifyingPayload } from '../types/api';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8765';
 
-const REPLAY_TIMEOUT_MS = 480_000; // 8 min overall timeout — covers worst-case full race + cold start
-const POLL_INTERVAL_MS = 4_000;
-const RETRY_EXTENSION_MS = 120_000; // Extra 2 min per retry cycle after deadline
-const MAX_RETRY_CYCLES = 2;
+// Local desktop: no cold starts — use shorter timeouts
+const REPLAY_TIMEOUT_MS = 600_000; // 10 min for first-ever load (FastF1 download)
+const POLL_INTERVAL_MS = 2_000;    // Poll faster locally
+const RETRY_EXTENSION_MS = 60_000;
+const MAX_RETRY_CYCLES = 1;
 
 interface TaskStatus {
   task_id: string;
@@ -44,10 +45,10 @@ async function fetchApi<T>(
     clearTimeout(timeoutId);
     if (err instanceof Error) {
       if (err.name === 'AbortError') {
-        throw new Error('Request timed out. First replay load can take 1–2 minutes — try again or pick a different race.');
+        throw new Error('Request timed out. The first load for a session downloads F1 data and can take a few minutes.');
       }
       if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError') || err.message.includes('Load failed')) {
-        throw new Error('Connection failed. The server may be starting up (Render free tier spins down after inactivity). Try again in 30s.');
+        throw new Error('Connection failed. The backend may still be starting up — wait a few seconds and try again.');
       }
     }
     throw err;
@@ -109,10 +110,10 @@ async function fetchWithPolling<T>(
       // Show backend progress if available, otherwise use tiered messages
       if (status.progress && status.progress !== 'Computing...') {
         onProgress?.(status.progress);
-      } else if (elapsed > 90_000) {
-        onProgress?.('Almost there — finishing up...');
+      } else if (elapsed > 120_000) {
+        onProgress?.('Almost there — processing final data...');
       } else if (elapsed > 30_000) {
-        onProgress?.('Large sessions can take a few minutes — still working...');
+        onProgress?.('Processing telemetry — large sessions can take a few minutes...');
       } else {
         onProgress?.('Computing session data...');
       }

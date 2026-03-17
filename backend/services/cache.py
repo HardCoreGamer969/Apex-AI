@@ -2,13 +2,15 @@
 Two-tier caching layer for ApexAI backend.
 
 L1: In-memory TTLCache for lightweight data (sessions list, race names).
-L2: Supabase Storage for large replay payloads (compressed JSON).
-    Falls back to in-memory LRU if Supabase is not configured.
+L2: Supabase Storage (cloud) OR LocalDiskCache (desktop/local) for large replay payloads.
+    - If SUPABASE_URL is set: uses Supabase Storage.
+    - Otherwise: uses LocalDiskCache (gzip files in %APPDATA%/ApexAI/cache or APEX_CACHE_DIR).
 """
 
 import gzip
 import logging
 import os
+import pathlib
 from typing import Any
 
 import orjson
@@ -26,6 +28,64 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 CACHE_BUCKET = os.environ.get("CACHE_BUCKET", "replay-cache")
 CACHE_MAX_SESSIONS = int(os.environ.get("CACHE_MAX_SESSIONS", "50"))
 L1_TTL_SECONDS = int(os.environ.get("CACHE_SESSIONS_TTL", str(24 * 3600)))
+
+# ---------------------------------------------------------------------------
+# LocalDiskCache: filesystem-based L2 (used when Supabase is not configured)
+# ---------------------------------------------------------------------------
+def _default_cache_dir() -> pathlib.Path:
+    appdata = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return pathlib.Path(appdata) / "ApexAI" / "cache"
+
+
+_DISK_CACHE_DIR: pathlib.Path = pathlib.Path(
+    os.environ.get("APEX_CACHE_DIR", "")
+) if os.environ.get("APEX_CACHE_DIR") else _default_cache_dir()
+
+
+def _disk_path(key: str) -> pathlib.Path:
+    """Resolve a cache key (e.g. 'replay/2024/5/R.json.gz') to an absolute file path."""
+    return _DISK_CACHE_DIR / key
+
+
+def disk_get(key: str) -> bytes | None:
+    """Read raw gzip bytes from disk. Returns None on miss."""
+    path = _disk_path(key)
+    if path.exists():
+        try:
+            data = path.read_bytes()
+            logger.info("L2 disk hit: %s (%d bytes)", key, len(data))
+            return data
+        except Exception as e:
+            logger.debug("L2 disk read error for %s: %s", key, e)
+    return None
+
+
+def disk_set(key: str, compressed: bytes) -> None:
+    """Write raw gzip bytes to disk."""
+    path = _disk_path(key)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(compressed)
+        logger.info("L2 disk stored: %s (%d bytes)", key, len(compressed))
+    except Exception as e:
+        logger.warning("L2 disk write error for %s: %s", key, e)
+
+
+def disk_delete(key: str) -> None:
+    path = _disk_path(key)
+    try:
+        if path.exists():
+            path.unlink()
+    except Exception as e:
+        logger.debug("L2 disk delete error for %s: %s", key, e)
+
+
+def disk_list_keys(prefix: str = "") -> list[str]:
+    """List all cached keys under an optional prefix."""
+    base = _DISK_CACHE_DIR / prefix if prefix else _DISK_CACHE_DIR
+    if not base.exists():
+        return []
+    return [str(p.relative_to(_DISK_CACHE_DIR)).replace("\\", "/") for p in base.rglob("*.json.gz")]
 
 # ---------------------------------------------------------------------------
 # L1: In-memory cache for sessions / race-names (small, fast, TTL-based)
@@ -47,7 +107,8 @@ def l1_set(key: str, value: Any) -> None:
 _supabase_client = None
 _supabase_available = False
 
-_l2_memory: LRUCache = LRUCache(maxsize=1 if (SUPABASE_URL and SUPABASE_KEY) else 2)
+# In-memory LRU is kept as a hot layer on top of disk (only when Supabase is absent)
+_l2_memory: LRUCache = LRUCache(maxsize=1 if (SUPABASE_URL and SUPABASE_KEY) else 3)
 
 
 def _get_supabase():
@@ -125,6 +186,7 @@ def replay_get(year: int, round_number: int, session: str) -> dict | None:
         except Exception as e:
             logger.debug("L2 Supabase miss or error for %s: %s", key, e)
     else:
+        # Check in-memory hot layer first
         cached = _l2_memory.get(key)
         if cached is not None:
             if _version_ok(cached):
@@ -132,6 +194,18 @@ def replay_get(year: int, round_number: int, session: str) -> dict | None:
                 return cached
             logger.info("L2 memory stale (version mismatch): %s", key)
             _l2_memory.pop(key, None)
+        # Fall through to disk
+        data = disk_get(key)
+        if data:
+            try:
+                payload = orjson.loads(gzip.decompress(data))
+                if _version_ok(payload):
+                    _l2_memory[key] = payload  # promote to memory
+                    return payload
+                logger.info("L2 disk stale (version mismatch): %s", key)
+                disk_delete(key)
+            except Exception as e:
+                logger.debug("L2 disk parse error for %s: %s", key, e)
 
     return None
 
@@ -159,25 +233,31 @@ def replay_set(year: int, round_number: int, session: str, payload: dict) -> Non
         except Exception as e:
             logger.warning("L2 Supabase write failed for %s: %s", key, e)
     else:
+        compressed = gzip.compress(
+            orjson.dumps(payload, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY),
+            compresslevel=6,
+        )
+        disk_set(key, compressed)
         _l2_memory[key] = payload
 
 
 def replay_get_compressed(year: int, round_number: int, session: str) -> bytes | None:
-    """Return raw gzip bytes from Supabase — avoids decompress+parse+re-encode cycle.
-    Returns None if Supabase is unavailable or on any error (caller falls back to replay_get).
+    """Return raw gzip bytes — avoids decompress+parse+re-encode cycle.
+    Works with both Supabase and disk cache.
     Version check intentionally skipped: replay_set always writes the current REPLAY_CACHE_VERSION."""
     key = _replay_key(year, round_number, session)
     sb = _get_supabase()
-    if not (sb and _supabase_available):
+    if sb and _supabase_available:
+        try:
+            data = sb.storage.from_(CACHE_BUCKET).download(key)
+            if data:
+                logger.info("L2 Supabase compressed hit: %s (%d bytes)", key, len(data))
+                return bytes(data)
+        except Exception as e:
+            logger.debug("L2 Supabase compressed miss for %s: %s", key, e)
         return None
-    try:
-        data = sb.storage.from_(CACHE_BUCKET).download(key)
-        if data:
-            logger.info("L2 Supabase compressed hit: %s (%d bytes)", key, len(data))
-            return bytes(data)
-    except Exception as e:
-        logger.debug("L2 Supabase compressed miss for %s: %s", key, e)
-    return None
+    # Disk cache
+    return disk_get(key)
 
 
 def quali_get(year: int, round_number: int, session: str) -> dict | None:
@@ -199,24 +279,32 @@ def quali_get(year: int, round_number: int, session: str) -> dict | None:
         if cached is not None:
             logger.info("L2 memory quali hit: %s", key)
             return cached
+        data = disk_get(key)
+        if data:
+            try:
+                payload = orjson.loads(gzip.decompress(data))
+                _l2_memory[key] = payload
+                return payload
+            except Exception as e:
+                logger.debug("L2 disk quali parse error for %s: %s", key, e)
 
     return None
 
 
 def quali_get_compressed(year: int, round_number: int, session: str) -> bytes | None:
-    """Return raw gzip bytes from Supabase for qualifying — avoids decompress+parse+re-encode cycle."""
+    """Return raw gzip bytes for qualifying — avoids decompress+parse+re-encode cycle."""
     key = _quali_key(year, round_number, session)
     sb = _get_supabase()
-    if not (sb and _supabase_available):
+    if sb and _supabase_available:
+        try:
+            data = sb.storage.from_(CACHE_BUCKET).download(key)
+            if data:
+                logger.info("L2 Supabase quali compressed hit: %s (%d bytes)", key, len(data))
+                return bytes(data)
+        except Exception as e:
+            logger.debug("L2 Supabase quali compressed miss for %s: %s", key, e)
         return None
-    try:
-        data = sb.storage.from_(CACHE_BUCKET).download(key)
-        if data:
-            logger.info("L2 Supabase quali compressed hit: %s (%d bytes)", key, len(data))
-            return bytes(data)
-    except Exception as e:
-        logger.debug("L2 Supabase quali compressed miss for %s: %s", key, e)
-    return None
+    return disk_get(key)
 
 
 def quali_set(year: int, round_number: int, session: str, payload: dict) -> None:
@@ -239,6 +327,11 @@ def quali_set(year: int, round_number: int, session: str, payload: dict) -> None
         except Exception as e:
             logger.warning("L2 Supabase quali write failed for %s: %s", key, e)
     else:
+        compressed = gzip.compress(
+            orjson.dumps(payload, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY),
+            compresslevel=6,
+        )
+        disk_set(key, compressed)
         _l2_memory[key] = payload
 
 
@@ -253,7 +346,7 @@ def _task_status_key(task_id: str) -> str:
 
 
 def task_status_get(task_id: str) -> dict[str, Any] | None:
-    """Retrieve task status from Supabase Storage or in-memory fallback."""
+    """Retrieve task status from Supabase Storage, disk, or in-memory fallback."""
     key = _task_status_key(task_id)
 
     sb = _get_supabase()
@@ -261,17 +354,26 @@ def task_status_get(task_id: str) -> dict[str, Any] | None:
         try:
             data = sb.storage.from_(CACHE_BUCKET).download(key)
             if data:
-                payload = orjson.loads(data)
-                return payload
+                return orjson.loads(data)
         except Exception as e:
             logger.debug("Task status miss or error for %s: %s", task_id, e)
         return None
 
-    return _task_status_memory.get(task_id)
+    # Try in-memory first, then disk
+    cached = _task_status_memory.get(task_id)
+    if cached is not None:
+        return cached
+    task_path = _DISK_CACHE_DIR / key
+    if task_path.exists():
+        try:
+            return orjson.loads(task_path.read_bytes())
+        except Exception:
+            pass
+    return None
 
 
 def task_status_set(task_id: str, task: dict[str, Any]) -> None:
-    """Persist task status to Supabase Storage or in-memory fallback."""
+    """Persist task status to Supabase Storage, disk, or in-memory fallback."""
     key = _task_status_key(task_id)
     payload = {
         "status": task.get("status", "pending"),
@@ -296,10 +398,16 @@ def task_status_set(task_id: str, task: dict[str, Any]) -> None:
             logger.warning("Task status write failed for %s: %s", task_id, e)
     else:
         _task_status_memory[task_id] = payload
+        task_path = _DISK_CACHE_DIR / key
+        try:
+            task_path.parent.mkdir(parents=True, exist_ok=True)
+            task_path.write_bytes(orjson.dumps(payload))
+        except Exception:
+            pass
 
 
 def task_status_delete(task_id: str) -> None:
-    """Remove task status from Supabase Storage or in-memory fallback."""
+    """Remove task status from Supabase Storage, disk, or in-memory fallback."""
     key = _task_status_key(task_id)
 
     sb = _get_supabase()
@@ -310,6 +418,12 @@ def task_status_delete(task_id: str) -> None:
             logger.debug("Task status delete failed for %s: %s", task_id, e)
     else:
         _task_status_memory.pop(task_id, None)
+        task_path = _DISK_CACHE_DIR / key
+        try:
+            if task_path.exists():
+                task_path.unlink()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

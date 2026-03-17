@@ -1,0 +1,51 @@
+services:
+
+  # ── Python FastAPI backend ──────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: apexai-backend
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./backend:/app/backend    # hot-reload: changes apply instantly
+      - ./src:/app/src            # hot-reload: shared F1 logic
+      - apexai_cache:/app/cache   # persist F1 session cache across restarts
+    environment:
+      APEX_MODE: desktop
+      APEX_CACHE_DIR: /app/cache
+      MPLBACKEND: Agg
+      MPLCONFIGDIR: /tmp/mpl
+      PYTHONUNBUFFERED: "1"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8765/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    restart: unless-stopped
+
+  # ── React + Vite frontend ───────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: apexai-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src         # hot-reload: React source
+      - ./frontend/public:/app/public   # hot-reload: static assets
+    environment:
+      # Browser-side: localhost:8765 maps to the backend port binding on the host
+      VITE_API_URL: http://localhost:8765
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+# ── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  apexai_cache:
+    name: apexai_cache

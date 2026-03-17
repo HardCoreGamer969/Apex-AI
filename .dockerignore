@@ -1,0 +1,65 @@
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+.venv/
+venv/
+
+# ── Node ─────────────────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/.vite/
+frontend/dist/
+
+# ── Desktop (not needed in Docker) ───────────────────────────────────────────
+desktop/
+desktop-backend/
+
+# ── Build artefacts ───────────────────────────────────────────────────────────
+dist/
+build/
+*.spec
+
+# ── Git ───────────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── Secrets & env ─────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+docker-compose*.yml
+.dockerignore
+docker/
+
+# ── Docs / non-runtime ───────────────────────────────────────────────────────
+documentation/
+docs/
+*.md
+images/
+resources/
+scripts/
+*.bat
+
+# ── IDE / OS ─────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+.DS_Store
+Thumbbs.db
+
+# ── Logs & test artefacts ────────────────────────────────────────────────────
+*.log
+logs/
+.pytest_cache/
+htmlcov/
+.coverage

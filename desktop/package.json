@@ -1,0 +1,16 @@
+{
+  "name": "apexai",
+  "productName": "ApexAI",
+  "version": "1.0.0",
+  "description": "F1 Race Replay Viewer for Windows",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

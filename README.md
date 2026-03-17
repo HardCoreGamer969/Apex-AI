@@ -1,58 +1,95 @@
-# ApexAI
+# ApexAI — F1 Race Viewer
 
-A full-stack web application for visualizing Formula 1 race telemetry and replaying race events in the browser. Select a race weekend, pick a session, and watch drivers move around the track with smooth interpolated animation.
+A **Windows desktop application** for visualizing Formula 1 race telemetry and replaying race sessions with smooth 60 FPS animation. Select a race weekend, pick a session, and watch drivers move around the track in real time.
 
 **ApexAI** is a modified fork of [F1 Race Replay](https://github.com/IAmTomShaw/f1-race-replay) by [Tom Shaw](https://tomshaw.dev).
 
+> **Web hosting is on hold.** Previous attempts to run on Render's free tier were too unreliable. The app now ships as a self-contained Windows .exe — no cloud, no cold starts, no timeouts.
+
+---
+
 ## Features
 
-- **Session Picker** — Browse race weekends by year and event, then select Race or Sprint sessions
+- **Session Picker** — Browse race weekends by year and event, select Race or Sprint sessions
 - **Track Visualization** — 2D circuit map with inner/outer boundaries and DRS zones
 - **Live Leaderboard** — Driver positions, lap, speed, and tyre compound in real time
-- **Smooth Playback** — 60 FPS interpolated car movement from 5 FPS telemetry data
+- **Smooth Playback** — 60 FPS interpolated car movement from telemetry keyframes
 - **Playback Controls** — Play, pause, speed (0.5x–4x), and seek through the session
+- **Local Cache** — Sessions are cached to disk after first load; subsequent loads are instant
+- **System Tray** — Minimize to tray, restore with double-click
+
+---
 
 ## Tech Stack
 
-| Layer   | Stack                          |
-|---------|--------------------------------|
-| Backend | Python, FastAPI, FastF1        |
-| Frontend| React, TypeScript, Vite        |
-| Deploy  | Render (backend), Vercel (frontend) |
+| Layer | Stack |
+|-------|-------|
+| Desktop shell | Electron 33 |
+| UI | React 19, TypeScript, Vite |
+| Backend | Python 3.11+, FastAPI, uvicorn |
+| F1 data | FastF1 |
+| Python bundling | PyInstaller 6 |
+| Windows installer | electron-builder 25 (NSIS) |
+| Local cache | Disk cache (`%APPDATA%\ApexAI\cache\`) |
 
-## Quick Start
+---
 
-### Prerequisites
+## Windows Desktop App
 
-- Python 3.11+
-- Node.js 18+
-- [uv](https://docs.astral.sh/uv/) (required for Python — backend uses `uv sync` and `uv run`)
+### Install (pre-built)
 
-### Run Locally
+Download `ApexAI-Setup-x.x.x.exe` from the [Releases](../../releases) page and run it. No Python or Node required.
 
-**1. Clone and install**
+**First run:** Electron starts the embedded backend, which downloads F1 session data on first access (2–5 minutes per session). Subsequent loads are instant from the local cache.
 
+### Build from source
+
+**Prerequisites:** Node.js 18+, Python 3.11+, [uv](https://docs.astral.sh/uv/)
+
+```powershell
+git clone https://github.com/HardCoreGamer969/Apex-AI
+cd Apex-AI
+uv sync
+cd desktop && npm install && cd ..
+
+# Build everything (frontend + PyInstaller backend + NSIS installer)
+.\scripts\build-desktop.ps1
+```
+
+Output: `desktop\dist\ApexAI Setup 1.0.0.exe`
+
+---
+
+## Developer Setup (run without building)
+
+Run the frontend and backend separately for development:
+
+**1. Install dependencies**
 ```bash
 git clone https://github.com/HardCoreGamer969/Apex-AI
 cd Apex-AI
 uv sync
-cd frontend && npm install
+cd frontend && npm install && cd ..
 ```
 
 **2. Start the backend**
-
 ```bash
-uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn backend.main:app --host 127.0.0.1 --port 8765
 ```
 
-**3. Start the frontend** (in a new terminal)
-
+**3. Start Electron** (or the Vite dev server for browser testing)
 ```bash
-cd frontend
-npm run dev
+# Option A: Electron (recommended)
+cd desktop && npm install && npx electron .
+
+# Option B: Browser
+cd frontend && npm run dev
+# Open http://localhost:5173
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The frontend expects the API at `http://localhost:8000` by default. Override with `VITE_API_URL` in `frontend/.env` if needed.
+The backend defaults to `http://localhost:8765`. Override with `VITE_API_URL` in `frontend/.env`.
+
+---
 
 ## API
 
@@ -62,47 +99,58 @@ Open [http://localhost:5173](http://localhost:5173). The frontend expects the AP
 | `GET /sessions?place=Monaco` | List weekends by place |
 | `GET /sessions/race-names` | Unique race names for dropdowns |
 | `GET /replay?year=2024&round=5&session=R` | Full replay payload (frames, track, driver colors) |
-| `GET /health` | Health check |
+| `GET /health` | Health check — returns `{"status":"ok","mode":"desktop"}` |
 
-Replay supports `stride` (1–25) to downsample frames; default `stride=5` yields ~5 FPS data for smaller payloads.
+Replay supports `stride` (1–25) to downsample frames; default `stride=5` yields ~5 FPS keyframes for smaller payloads.
+
+---
 
 ## Project Structure
 
 ```
-Apex-AI/
-├── backend/                 # FastAPI backend
-│   ├── main.py              # App entry, CORS, routers
-│   ├── routers/             # sessions, replay
-│   └── services/            # f1_adapter (wraps src/)
-├── frontend/                # React + Vite SPA
+ApexAI/
+├── backend/                  # FastAPI backend
+│   ├── main.py               # App entry, CORS, APEX_MODE detection
+│   ├── routers/              # sessions, replay, admin, websocket
+│   └── services/
+│       ├── cache.py          # L1 (TTL) + L2 (disk or Supabase)
+│       └── f1_adapter.py     # Wraps src/f1_data.py
+├── frontend/                 # React + Vite SPA
 │   ├── src/
-│   │   ├── api/             # API client
-│   │   ├── components/      # SessionPicker, ReplayViewer, TrackCanvas, etc.
-│   │   ├── hooks/           # useReplayPlayback (interpolation)
-│   │   └── types/           # API types
-│   └── vercel.json          # SPA routing
-├── src/                     # Shared F1 logic (used by backend)
-│   ├── f1_data.py           # FastF1, telemetry, frame generation
-│   └── ui_components.py      # Track geometry
-├── pyproject.toml           # Python deps (uv)
-├── render.yaml              # Render deployment config
-└── main.py                  # Legacy desktop viewer (Arcade)
+│   │   ├── api/              # API client (polling, local timeouts)
+│   │   ├── components/       # SessionPicker, ReplayViewer, TrackCanvas, etc.
+│   │   ├── hooks/            # useReplayPlayback (60 FPS interpolation)
+│   │   └── types/            # TypeScript interfaces
+│   └── vite.config.ts        # base: './' for Electron file:// loading
+├── desktop/                  # Electron shell
+│   ├── main.js               # Main process: spawn backend, window, tray
+│   ├── preload.js            # Context bridge
+│   ├── package.json          # Electron + electron-builder deps
+│   └── electron-builder.json # NSIS installer config
+├── desktop-backend/          # PyInstaller bundle
+│   ├── main.py               # Entry point (freeze_support + uvicorn)
+│   └── apex-ai-backend.spec  # PyInstaller spec
+├── src/                      # Shared F1 logic
+│   ├── f1_data.py            # FastF1, telemetry, frame generation
+│   └── track_geometry.py
+├── scripts/
+│   └── build-desktop.ps1     # One-command Windows build
+├── documentation/            # Technical docs and plans
+└── pyproject.toml            # Python deps (uv)
 ```
 
-## Deployment
+---
 
-- **Frontend:** Deploy `frontend/` to Vercel. Set `VITE_API_URL` to your backend URL.
-- **Backend:** Deploy to Render (or similar) using `render.yaml`. Set `CORS_ORIGINS` to your frontend URL(s).
-
-## Future Plans & Documentation
-
-Planned features and technical documentation live in the [`documentation/`](documentation/) folder:
+## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Desktop EXE and Pipeline](documentation/desktop-exe-and-pipeline.md) | Plan for Windows .exe desktop build (Electron + PyInstaller) and unified web/desktop feature pipeline |
-| [Render Memory Optimization](documentation/render-memory-optimization.md) | Backend memory optimizations for Render free tier |
-| [Offload Compute](documentation/offload-compute.md) | Pre-compute in CI, keyframe mode, browser interpolation |
+| [Windows EXE Plan](documentation/windows-exe-plan.md) | Current architecture, build steps, and verification checklist |
+| [Desktop EXE and Pipeline](documentation/desktop-exe-and-pipeline.md) | Original Electron + PyInstaller design (reference) |
+| [Render Memory Optimization](documentation/render-memory-optimization.md) | Backend memory work (archived — Render on hold) |
+| [Offload Compute](documentation/offload-compute.md) | Pre-compute and keyframe strategy |
+
+---
 
 ## License
 
@@ -110,9 +158,9 @@ This project is licensed under the MIT License. See [LICENSE](./LICENSE) for the
 
 ### Attribution
 
-ApexAI is a modified fork of **F1 Race Replay**. The following attribution must be preserved:
+ApexAI is a modified fork of **F1 Race Replay**.
 
-> **Copyright (c) Tom Shaw**  
+> **Copyright (c) Tom Shaw**
 > Original project: [F1 Race Replay](https://github.com/IAmTomShaw/f1-race-replay) by [Tom Shaw](https://tomshaw.dev)
 
 ## Disclaimer
