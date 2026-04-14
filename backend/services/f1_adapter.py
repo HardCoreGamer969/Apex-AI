@@ -194,6 +194,170 @@ def get_replay_data(year: int, round_number: int, session_type: str = "R") -> di
     }
 
 
+def get_strategy_data(year: int, round_number: int, session_type: str = "R") -> dict:
+    """Return tyre strategy stints per driver for the session."""
+    enable_cache()
+    session = load_session(year, round_number, session_type)
+    driver_colors = _serialize_driver_colors(get_driver_colors(session))
+    result = []
+    for driver_no in session.drivers:
+        try:
+            code = session.get_driver(driver_no)["Abbreviation"]
+        except Exception:
+            continue
+        team_color = driver_colors.get(code, "#888888")
+        laps = session.laps.pick_drivers(driver_no)
+        if laps.empty or "Stint" not in laps.columns:
+            result.append({"driver": code, "team_color": team_color, "stints": []})
+            continue
+        stints = []
+        for stint_num, stint_laps in laps.groupby("Stint"):
+            if stint_laps.empty:
+                continue
+            compound = str(stint_laps["Compound"].iloc[0]) if "Compound" in stint_laps.columns else "UNKNOWN"
+            start_lap = int(stint_laps["LapNumber"].min())
+            end_lap = int(stint_laps["LapNumber"].max())
+            lap_times = stint_laps["LapTime"].dropna()
+            avg_s = _sanitize(float(lap_times.dt.total_seconds().mean())) if len(lap_times) > 0 else None
+            pit_stop_lap = int(start_lap - 1) if int(stint_num) > 1 else None
+            stints.append({
+                "stint": int(stint_num),
+                "compound": compound.upper(),
+                "start_lap": start_lap,
+                "end_lap": end_lap,
+                "lap_count": end_lap - start_lap + 1,
+                "avg_lap_time_s": avg_s,
+                "pit_stop_lap_before": pit_stop_lap,
+            })
+        result.append({"driver": code, "team_color": team_color, "stints": stints})
+    return {
+        "drivers": result,
+        "session_info": {"event_name": session.event.get("EventName", ""), "year": year, "round": round_number},
+    }
+
+
+def _car_data_samples(car_data, max_samples: int = 100) -> list[dict]:
+    """Downsample a lap's car data to at most max_samples rows."""
+    n = len(car_data)
+    step = max(1, n // max_samples)
+    samples = []
+    for _, row in car_data.iloc[::step].iterrows():
+        t = row["Time"]
+        samples.append({
+            "t": _sanitize(float(t.total_seconds()) if hasattr(t, "total_seconds") else float(t)),
+            "speed": _sanitize(float(row["Speed"])) if "Speed" in row else None,
+            "throttle": _sanitize(float(row["Throttle"])) if "Throttle" in row else None,
+            "brake": _sanitize(float(row["Brake"])) if "Brake" in row else None,
+            "gear": _sanitize(int(row["nGear"])) if "nGear" in row else None,
+            "drs": _sanitize(int(row["DRS"])) if "DRS" in row else None,
+            "rpm": _sanitize(float(row["RPM"])) if "RPM" in row else None,
+        })
+    return samples
+
+
+def get_telemetry_data(year: int, round_number: int, session_type: str, driver: str) -> dict:
+    """Return per-lap telemetry traces (~100 samples/lap) for a single driver."""
+    enable_cache()
+    session = load_session(year, round_number, session_type)
+    driver_laps = session.laps.pick_drivers(driver)
+    if driver_laps.empty:
+        raise ValueError(f"No laps found for driver {driver}")
+    laps_out = []
+    for _, lap in driver_laps.iterlaps():
+        try:
+            car_data = lap.get_car_data()
+        except Exception:
+            continue
+        if car_data is None or car_data.empty:
+            continue
+        laps_out.append({"lap_number": int(lap.LapNumber), "samples": _car_data_samples(car_data)})
+    return {"driver": driver, "laps": laps_out}
+
+
+def get_lap_data(year: int, round_number: int, session_type: str, driver: str, lap_number: int) -> dict:
+    """Return telemetry + sector times for a single lap."""
+    enable_cache()
+    session = load_session(year, round_number, session_type)
+    driver_laps = session.laps.pick_drivers(driver)
+    if driver_laps.empty:
+        raise ValueError(f"No laps found for driver {driver}")
+    lap_rows = driver_laps[driver_laps["LapNumber"] == lap_number]
+    if lap_rows.empty:
+        raise ValueError(f"Lap {lap_number} not found for driver {driver}")
+    lap = lap_rows.iloc[0]
+    try:
+        car_data = lap.get_car_data()
+    except Exception as e:
+        raise ValueError(f"Could not load car data for lap {lap_number}: {e}")
+    if car_data is None or car_data.empty:
+        raise ValueError(f"No car data for lap {lap_number}")
+
+    def _td_s(td):
+        try:
+            return _sanitize(float(td.total_seconds()))
+        except Exception:
+            return None
+
+    return {
+        "driver": driver,
+        "lap_number": lap_number,
+        "lap_time_s": _td_s(lap.get("LapTime")),
+        "sector_times": [_td_s(lap.get("Sector1Time")), _td_s(lap.get("Sector2Time")), _td_s(lap.get("Sector3Time"))],
+        "telemetry": {"samples": _car_data_samples(car_data)},
+    }
+
+
+def get_compare_data(year: int, round_number: int, session_type: str, driver_a: str, driver_b: str) -> dict:
+    """Return aligned position+speed frames for two drivers + gap series."""
+    import bisect
+    enable_cache()
+    session = load_session(year, round_number, session_type)
+
+    def _driver_frames(driver: str) -> list[dict]:
+        laps = session.laps.pick_drivers(driver)
+        if laps.empty:
+            raise ValueError(f"No laps found for driver {driver}")
+        frames = []
+        for _, lap in laps.iterlaps():
+            try:
+                pos = lap.get_pos_data()
+                car = lap.get_car_data()
+            except Exception:
+                continue
+            if pos is None or pos.empty:
+                continue
+            n = len(pos)
+            step = max(1, n // 50)
+            car_step = car.iloc[::step] if car is not None and not car.empty else None
+            for i, (_, row) in enumerate(pos.iloc[::step].iterrows()):
+                t = row["Time"]
+                entry = {
+                    "t": _sanitize(float(t.total_seconds()) if hasattr(t, "total_seconds") else float(t)),
+                    "lap": int(lap.LapNumber),
+                    "x": _sanitize(float(row["X"])) if "X" in row else None,
+                    "y": _sanitize(float(row["Y"])) if "Y" in row else None,
+                    "rel_dist": _sanitize(float(row["RelativeDistance"])) if "RelativeDistance" in row else None,
+                }
+                if car_step is not None and i < len(car_step):
+                    entry["speed"] = _sanitize(float(car_step.iloc[i]["Speed"])) if "Speed" in car_step.columns else None
+                frames.append(entry)
+        return frames
+
+    frames_a = _driver_frames(driver_a)
+    frames_b = _driver_frames(driver_b)
+
+    times_b = [s["t"] for s in frames_b if s["t"] is not None]
+    gap_series = []
+    for sa in frames_a:
+        ta = sa.get("t")
+        if ta is None or not times_b:
+            continue
+        idx = min(bisect.bisect_left(times_b, ta), len(times_b) - 1)
+        gap_series.append({"t": _sanitize(ta), "gap_s": _sanitize(ta - times_b[idx])})
+
+    return {"driver_a": driver_a, "driver_b": driver_b, "frames_a": frames_a, "frames_b": frames_b, "gap_series": gap_series}
+
+
 def get_qualifying_data(year: int, round_number: int, session_type: str = "Q") -> dict:
     """Load qualifying session and return results + driver colors."""
     enable_cache()

@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import type { Frame, Track } from '../types/api';
-import type { InterpolationState } from '../hooks/useReplayPlayback';
+import type { Frame, Track } from '../../types/api';
+import type { InterpolationState } from '../../hooks/useReplayPlayback';
 
 interface TrackCanvasProps {
   track: Track;
@@ -35,7 +35,6 @@ export default function TrackCanvas({
   const rangeX = track.x_max - track.x_min || 1;
   const rangeY = track.y_max - track.y_min || 1;
 
-  // Render static track to an offscreen canvas (once per track change)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !track) return;
@@ -62,8 +61,9 @@ export default function TrackCanvas({
     offscreen.height = height;
     const ctx = offscreen.getContext('2d')!;
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = 2;
+    // Outer boundary
+    ctx.strokeStyle = 'rgba(255,255,255,0.20)';
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
     for (let i = 0; i < track.outer_x.length; i++) {
       const { x, y } = toCanvas(track.outer_x[i], track.outer_y[i]);
@@ -73,6 +73,7 @@ export default function TrackCanvas({
     ctx.closePath();
     ctx.stroke();
 
+    // Inner boundary
     ctx.beginPath();
     for (let i = 0; i < track.inner_x.length; i++) {
       const { x, y } = toCanvas(track.inner_x[i], track.inner_y[i]);
@@ -82,8 +83,10 @@ export default function TrackCanvas({
     ctx.closePath();
     ctx.stroke();
 
+    // DRS zones
     ctx.setLineDash([6, 4]);
-    ctx.strokeStyle = 'rgba(245, 158, 11, 0.5)';
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.6)';
+    ctx.lineWidth = 2;
     track.drs_zones.forEach((zone) => {
       ctx.beginPath();
       const s = toCanvas(zone.start.x, zone.start.y);
@@ -97,7 +100,6 @@ export default function TrackCanvas({
     trackImageRef.current = offscreen;
   }, [track, circuitRotation, cx, cy, rangeX, rangeY, cos, sin, padding]);
 
-  // 60fps animation loop — reads interpRef directly, no React re-renders
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !track || frames.length === 0) return;
@@ -148,12 +150,18 @@ export default function TrackCanvas({
         const { x: px, y: py } = toCanvas(worldX, worldY);
 
         const color = driverColors[code] || '#888';
+
+        // Glow effect
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 8;
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(px, py, 6, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-        ctx.lineWidth = 1;
+        ctx.shadowBlur = 0;
+
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.lineWidth = 1.5;
         ctx.stroke();
       }
 
@@ -166,5 +174,10 @@ export default function TrackCanvas({
     };
   }, [track, circuitRotation, frames, driverColors, interpRef, cx, cy, rangeX, rangeY, cos, sin, padding]);
 
-  return <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />;
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ width: '100%', height: '100%', display: 'block' }}
+    />
+  );
 }

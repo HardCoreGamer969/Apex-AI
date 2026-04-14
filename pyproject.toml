@@ -19,6 +19,7 @@ dependencies = [
     "orjson>=3.11.7",
     "cachetools>=7.0.5",
     "supabase>=2.25.1",
+    "redis>=5",
 ]
 
 [project.optional-dependencies]

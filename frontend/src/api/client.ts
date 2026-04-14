@@ -1,4 +1,4 @@
-import type { ReplayPayload, Session, QualifyingPayload } from '../types/api';
+import type { ReplayPayload, Session, QualifyingPayload, StrategyPayload, TelemetryPayload, LapPayload, ComparePayload } from '../types/api';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -70,4 +70,20 @@ export async function fetchQualifying(
   session: 'Q' | 'SQ' = 'Q',
 ): Promise<QualifyingPayload> {
   return fetchApi<QualifyingPayload>('/replay/qualifying', { year, round, session });
+}
+
+export async function fetchStrategy(year: number, round: number, session: 'R' | 'S' = 'R'): Promise<StrategyPayload> {
+  return fetchApi<StrategyPayload>('/strategy', { year, round, session });
+}
+
+export async function fetchTelemetry(year: number, round: number, session: string, driver: string): Promise<TelemetryPayload> {
+  return fetchApi<TelemetryPayload>('/telemetry', { year, round, session, driver }, { timeoutMs: REPLAY_TIMEOUT_MS });
+}
+
+export async function fetchLap(year: number, round: number, session: string, driver: string, lap: number): Promise<LapPayload> {
+  return fetchApi<LapPayload>('/lap', { year, round, session, driver, lap }, { timeoutMs: REPLAY_TIMEOUT_MS });
+}
+
+export async function fetchCompare(year: number, round: number, session: string, driver_a: string, driver_b: string): Promise<ComparePayload> {
+  return fetchApi<ComparePayload>('/compare', { year, round, session, driver_a, driver_b }, { timeoutMs: REPLAY_TIMEOUT_MS });
 }

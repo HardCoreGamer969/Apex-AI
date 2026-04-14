@@ -1,7 +1,7 @@
 """
 Two-tier caching layer for ApexAI backend.
 
-L1: In-memory TTLCache for lightweight data (sessions list, race names).
+L1: Redis (falls back to in-memory TTLCache if REDIS_URL is unset).
 L2: Supabase Storage for large replay payloads (compressed JSON).
     Falls back to in-memory LRU if Supabase is not configured.
 """
@@ -22,21 +22,63 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 CACHE_BUCKET = os.environ.get("CACHE_BUCKET", "replay-cache")
-CACHE_MAX_SESSIONS = int(os.environ.get("CACHE_MAX_SESSIONS", "50"))
-L1_TTL_SECONDS = int(os.environ.get("CACHE_SESSIONS_TTL", str(24 * 3600)))
+REDIS_URL = os.environ.get("REDIS_URL", "")
+L1_TTL_SECONDS = int(os.environ.get("CACHE_SESSIONS_TTL") or str(24 * 3600))
 
 # ---------------------------------------------------------------------------
-# L1: In-memory cache for sessions / race-names (small, fast, TTL-based)
+# L1: Redis client (optional) + in-memory fallback
 # ---------------------------------------------------------------------------
-_l1_cache: TTLCache = TTLCache(maxsize=200, ttl=L1_TTL_SECONDS)
+_redis_client = None
+_redis_available = False
+_l1_memory: TTLCache = TTLCache(maxsize=200, ttl=L1_TTL_SECONDS)
+
+
+def _get_redis():
+    global _redis_client, _redis_available
+    if _redis_client is not None:
+        return _redis_client
+    if not REDIS_URL:
+        logger.info("REDIS_URL not set — L1 cache using in-memory TTLCache")
+        return None
+    try:
+        import redis.asyncio as aioredis
+        import redis as syncredis
+        _redis_client = syncredis.from_url(REDIS_URL, decode_responses=False)
+        _redis_client.ping()
+        _redis_available = True
+        logger.info("Redis connected for L1 cache")
+    except Exception as e:
+        _redis_available = False
+        _redis_client = None
+        logger.warning("Redis unavailable (%s) — falling back to in-memory TTLCache", e)
+    return _redis_client
+
+
+def redis_configured() -> bool:
+    r = _get_redis()
+    return r is not None and _redis_available
 
 
 def l1_get(key: str) -> Any | None:
-    return _l1_cache.get(key)
+    r = _get_redis()
+    if r and _redis_available:
+        try:
+            raw = r.get(key)
+            if raw is not None:
+                return orjson.loads(raw)
+        except Exception as e:
+            logger.debug("Redis l1_get error for %s: %s", key, e)
+    return _l1_memory.get(key)
 
 
 def l1_set(key: str, value: Any) -> None:
-    _l1_cache[key] = value
+    _l1_memory[key] = value
+    r = _get_redis()
+    if r and _redis_available:
+        try:
+            r.set(key, orjson.dumps(value), ex=L1_TTL_SECONDS)
+        except Exception as e:
+            logger.debug("Redis l1_set error for %s: %s", key, e)
 
 
 # ---------------------------------------------------------------------------
@@ -45,11 +87,10 @@ def l1_set(key: str, value: Any) -> None:
 _supabase_client = None
 _supabase_available = False
 
-_l2_memory: LRUCache = LRUCache(maxsize=2)  # Keep small for 512MB Render free tier
+_l2_memory: LRUCache = LRUCache(maxsize=10)
 
 
 def _get_supabase():
-    """Lazy-init the Supabase client."""
     global _supabase_client, _supabase_available
     if _supabase_client is not None:
         return _supabase_client
@@ -70,7 +111,6 @@ def _get_supabase():
 
 
 def _ensure_bucket():
-    """Create the cache bucket if it doesn't exist."""
     if not _supabase_client:
         return
     try:
@@ -142,7 +182,8 @@ def replay_set(year: int, round_number: int, session: str, payload: dict) -> Non
 
 
 def _evict_if_needed(sb) -> None:
-    """If we exceed CACHE_MAX_SESSIONS files, delete the oldest ones."""
+    """If we exceed 50 files, delete the oldest ones."""
+    max_sessions = 50
     try:
         files = sb.storage.from_(CACHE_BUCKET).list(
             path="replay",
@@ -173,11 +214,11 @@ def _evict_if_needed(sb) -> None:
                             "created_at": sf.get("created_at", ""),
                         })
 
-        if len(all_files) <= CACHE_MAX_SESSIONS:
+        if len(all_files) <= max_sessions:
             return
 
         all_files.sort(key=lambda f: f["created_at"])
-        to_delete = len(all_files) - CACHE_MAX_SESSIONS
+        to_delete = len(all_files) - max_sessions
         paths_to_remove = [f["path"] for f in all_files[:to_delete]]
 
         if paths_to_remove:

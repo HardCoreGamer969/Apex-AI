@@ -102,3 +102,74 @@ export interface QualifyingPayload {
     date: string;
   };
 }
+
+export interface Stint {
+  stint: number;
+  compound: 'SOFT' | 'MEDIUM' | 'HARD' | 'INTERMEDIATE' | 'WET' | 'UNKNOWN';
+  start_lap: number;
+  end_lap: number;
+  avg_lap_time_s: number | null;
+  pit_stop_lap: number | null;
+}
+
+export interface DriverStrategy {
+  driver: string;
+  team_color: string;
+  stints: Stint[];
+}
+
+export type StrategyPayload = DriverStrategy[];
+
+export interface TelemetrySample {
+  speed: number;
+  throttle: number;
+  brake: number;
+  gear: number;
+  drs: number;
+  distance: number;
+}
+
+export interface TelemetryLap {
+  lap_number: number;
+  samples: TelemetrySample[];
+}
+
+export interface TelemetryPayload {
+  driver: string;
+  laps: TelemetryLap[];
+}
+
+export interface LapSectorTimes {
+  sector1: number | null;
+  sector2: number | null;
+  sector3: number | null;
+}
+
+export interface LapPayload {
+  driver: string;
+  lap_number: number;
+  lap_time_s: number | null;
+  sector_times: LapSectorTimes;
+  samples: TelemetrySample[];
+}
+
+export interface CompareDriverData {
+  driver: string;
+  color: string;
+  frames: Array<{
+    lap: number;
+    x: number;
+    y: number;
+    speed: number;
+    dist: number;
+  }>;
+}
+
+export interface ComparePayload {
+  driver_a: CompareDriverData;
+  driver_b: CompareDriverData;
+  gap_series: Array<{ dist: number; gap_s: number }>;
+  session_info: SessionInfo;
+  track: Track;
+  circuit_rotation: number;
+}
