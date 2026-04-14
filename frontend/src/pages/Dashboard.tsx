@@ -59,9 +59,14 @@ function SessionCard({ session, index }: { session: { round_number: number; even
 
 export default function Dashboard() {
   const currentYear = new Date().getFullYear();
-  const { data: sessions, isLoading } = useSessions(currentYear);
+  const { data: currentSessions, isLoading: loadingCurrent } = useSessions(currentYear);
+  const currentIsEmpty = !loadingCurrent && (currentSessions?.length ?? 0) === 0;
+  const { data: prevSessions, isLoading: loadingPrev } = useSessions(currentYear - 1, { enabled: currentIsEmpty });
   const { sessions: saved } = useSavedStore();
 
+  const sessions = currentIsEmpty ? prevSessions : currentSessions;
+  const displayYear = currentIsEmpty ? currentYear - 1 : currentYear;
+  const isLoading = loadingCurrent || (currentIsEmpty && loadingPrev);
   const featured = sessions?.slice(0, 6) ?? [];
 
   return (
@@ -161,7 +166,7 @@ export default function Dashboard() {
         {/* Featured races */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xs font-mono text-zinc-400 uppercase tracking-wider">
-            {currentYear} Season
+            {displayYear} Season{currentIsEmpty && <span className="text-zinc-600 ml-2 normal-case tracking-normal">(no {currentYear} data yet)</span>}
           </h2>
           <Link
             to="/sessions"
@@ -179,14 +184,14 @@ export default function Dashboard() {
           </div>
         ) : featured.length === 0 ? (
           <GlassPanel className="p-8 text-center">
-            <p className="text-zinc-400 text-sm">No sessions available for {currentYear} yet.</p>
+            <p className="text-zinc-400 text-sm">No sessions available for {displayYear} yet.</p>
           </GlassPanel>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {featured.map((session, i) => (
               <SessionCard
                 key={`${session.round_number}-${session.event_name}`}
-                session={{ ...session, year: currentYear }}
+                session={{ ...session, year: displayYear }}
                 index={i}
               />
             ))}

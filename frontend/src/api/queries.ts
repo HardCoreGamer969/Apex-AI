@@ -1,11 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchSessions, fetchRaceNames, fetchReplay, fetchQualifying, fetchStrategy, fetchTelemetry, fetchLap, fetchCompare } from './client';
 
-export function useSessions(year?: number, place?: string) {
+export function useSessions(year?: number, placeOrOptions?: string | { enabled?: boolean }, options?: { enabled?: boolean }) {
+  const place = typeof placeOrOptions === 'string' ? placeOrOptions : undefined;
+  const opts = typeof placeOrOptions === 'object' ? placeOrOptions : options;
   return useQuery({
     queryKey: ['sessions', year, place],
     queryFn: () => fetchSessions(year, place),
     staleTime: 5 * 60 * 1000,
+    enabled: opts?.enabled ?? true,
   });
 }
 

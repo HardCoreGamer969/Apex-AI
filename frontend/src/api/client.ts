@@ -1,6 +1,15 @@
 import type { ReplayPayload, Session, QualifyingPayload, StrategyPayload, TelemetryPayload, LapPayload, ComparePayload } from '../types/api';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+function normalizeApiBase(raw: string | undefined): string {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return 'http://localhost:8000';
+  // Accept bare hostnames like "my-app.up.railway.app" by prepending https://
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  // Strip trailing slash so `new URL('/path', base)` behaves consistently
+  return withScheme.replace(/\/+$/, '');
+}
+
+const API_BASE = normalizeApiBase(import.meta.env.VITE_API_URL);
 
 const REPLAY_TIMEOUT_MS = 180_000; // 3 min for replay (first load can take 1–2 min on Render)
 
