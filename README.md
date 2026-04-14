@@ -6,19 +6,22 @@ A full-stack web application for visualizing Formula 1 race telemetry and replay
 
 ## Features
 
-- **Session Picker** — Browse race weekends by year and event, then select Race or Sprint sessions
-- **Track Visualization** — 2D circuit map with inner/outer boundaries and DRS zones
-- **Live Leaderboard** — Driver positions, lap, speed, and tyre compound in real time
-- **Smooth Playback** — 60 FPS interpolated car movement from 5 FPS telemetry data
-- **Playback Controls** — Play, pause, speed (0.5x–4x), and seek through the session
+- **Dashboard** — Featured race card, recent sessions grid, saved-session strip, WebGL hero (Three.js, SVG fallback on low-end devices)
+- **Replay Viewer** — 60 FPS interpolated car movement from 5 FPS telemetry, live leaderboard, weather, DRS zones
+- **Head-to-Head Compare** — Two-driver synchronized playback with live gap chart
+- **Lap Analysis** — Isolated single-lap replay with telemetry sparklines and sector times
+- **Tyre Strategy Timeline** — Gantt chart of driver stints with compound-colored bars, pit-stop markers, and a lap scrubber that updates grid order
+- **Telemetry Overlays** — Speed, throttle, brake, gear, and DRS traces over the replay track
+- **Saved Sessions** — Bookmark sessions locally (Zustand + localStorage persistence)
+- **Glassmorphism UI** — Tailwind + Framer Motion throughout with heavy motion and glass panels
 
 ## Tech Stack
 
-| Layer   | Stack                          |
-|---------|--------------------------------|
-| Backend | Python, FastAPI, FastF1        |
-| Frontend| React, TypeScript, Vite        |
-| Deploy  | Render (backend), Vercel (frontend) |
+| Layer   | Stack                                                                 |
+|---------|-----------------------------------------------------------------------|
+| Backend | Python, FastAPI, FastF1, Redis (with in-memory fallback), Supabase L2 |
+| Frontend| React 19, TypeScript, Vite, Tailwind, Framer Motion, Three.js, Zustand, TanStack Query |
+| Deploy  | Railway (backend), Vercel (frontend)                                  |
 
 ## Quick Start
 
@@ -59,12 +62,15 @@ Open [http://localhost:5173](http://localhost:5173). The frontend expects the AP
 | Endpoint | Description |
 |----------|-------------|
 | `GET /sessions?year=2024` | List race weekends by year |
-| `GET /sessions?place=Monaco` | List weekends by place |
 | `GET /sessions/race-names` | Unique race names for dropdowns |
 | `GET /replay?year=2024&round=5&session=R` | Full replay payload (frames, track, driver colors) |
+| `GET /compare?year=...&driver_a=VER&driver_b=HAM` | Two-driver aligned frames + gap series |
+| `GET /telemetry?year=...&driver=VER` | Per-lap telemetry (speed/throttle/brake/gear/DRS) |
+| `GET /lap?year=...&driver=VER&lap=45` | Single-lap frames + telemetry + sector times |
+| `GET /strategy?year=...&session=R` | Stint list per driver (compound, lap range, pit stops) |
 | `GET /health` | Health check |
 
-Replay supports `stride` (1–25) to downsample frames; default `stride=5` yields ~5 FPS data for smaller payloads.
+Replay supports `stride` (1–25) to downsample frames; default `stride=1` for full-fidelity playback.
 
 ## Project Structure
 
@@ -72,27 +78,32 @@ Replay supports `stride` (1–25) to downsample frames; default `stride=5` yield
 Apex-AI/
 ├── backend/                 # FastAPI backend
 │   ├── main.py              # App entry, CORS, routers
-│   ├── routers/             # sessions, replay
-│   └── services/            # f1_adapter (wraps src/)
+│   ├── routers/             # sessions, replay, compare, telemetry, lap, strategy
+│   └── services/            # f1_adapter, cache (Redis + in-memory fallback)
 ├── frontend/                # React + Vite SPA
 │   ├── src/
-│   │   ├── api/             # API client
-│   │   ├── components/      # SessionPicker, ReplayViewer, TrackCanvas, etc.
-│   │   ├── hooks/           # useReplayPlayback (interpolation)
-│   │   └── types/           # API types
+│   │   ├── api/             # client + TanStack Query hooks
+│   │   ├── components/
+│   │   │   ├── glass/       # GlassPanel primitive
+│   │   │   ├── hero/        # TrackHero (Three.js) + SVG fallback
+│   │   │   ├── nav/         # NavBar
+│   │   │   └── replay/      # TrackCanvas, Leaderboard, TelemetryOverlay, etc.
+│   │   ├── pages/           # Dashboard, ReplayViewer, Compare, Lap, Strategy, Saved
+│   │   ├── store/           # Zustand stores (replay, saved)
+│   │   └── styles/          # tokens.css
 │   └── vercel.json          # SPA routing
 ├── src/                     # Shared F1 logic (used by backend)
 │   ├── f1_data.py           # FastF1, telemetry, frame generation
-│   └── ui_components.py      # Track geometry
+│   ├── ui_components.py     # Track geometry
+│   └── lib/                 # settings, time, tyres, season helpers
 ├── pyproject.toml           # Python deps (uv)
-├── render.yaml              # Render deployment config
-└── main.py                  # Legacy desktop viewer (Arcade)
+└── railway.toml             # Railway deployment config
 ```
 
 ## Deployment
 
 - **Frontend:** Deploy `frontend/` to Vercel. Set `VITE_API_URL` to your backend URL.
-- **Backend:** Deploy to Render (or similar) using `render.yaml`. Set `CORS_ORIGINS` to your frontend URL(s).
+- **Backend:** Deploy to Railway using `railway.toml`. Set `CORS_ORIGINS` to your frontend URL(s); optionally add `REDIS_URL` (Railway Redis plugin) and Supabase vars (`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `CACHE_BUCKET`) for the L2 cache. If `REDIS_URL` is unset the backend falls back to an in-memory TTL cache.
 
 ## License
 
