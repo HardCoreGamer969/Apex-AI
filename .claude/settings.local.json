@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m 'fix\\(railway\\): bump healthcheck timeout to 120s for FastF1 cold boot:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}

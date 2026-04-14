@@ -32,7 +32,7 @@ npm run preview    # preview built bundle
 ### Monorepo layout
 
 - `backend/` — FastAPI app (routers + services)
-- `src/` — **shared F1 domain logic imported by `backend/`**. Not `backend/src/`. Moving or renaming `src/` breaks backend imports. Contains `f1_data.py` (FastF1 wrapper, frame generation, telemetry), `ui_components.py` (track geometry), `lib/` (settings, time, tyres, season helpers), plus `tyre_degradation_integration.py` + `bayesian_tyre_model.py`.
+- `src/` — **shared F1 domain logic imported by `backend/`**. Not `backend/src/`. Moving or renaming `src/` breaks backend imports. Contains `f1_data.py` (FastF1 wrapper, frame generation, telemetry), `track_geometry.py` (pure-numpy track outline + DRS zones), and `lib/` (settings, time, tyres, season helpers). All import-safe in headless containers — do not add GUI deps (arcade, pyglet, pyside) here.
 - `frontend/` — React 19 + Vite + TypeScript SPA
 - `railway.toml` — Railway backend deploy config (Nixpacks, uvicorn start, `/health` healthcheck)
 - `frontend/vercel.json` — SPA rewrite rules for Vercel
@@ -46,7 +46,7 @@ npm run preview    # preview built bundle
    Both tiers degrade gracefully — **local dev needs no env vars**.
 3. **Routers live in `backend/routers/`** (one per concern: sessions, replay, websocket, strategy, telemetry, lap, compare). Each is registered in `backend/main.py`. Cache keys should be typed: `strategy:{year}:{round}:{session}`, compare uses sorted driver pair so `VER+HAM` and `HAM+VER` share a cache entry.
 4. **CORS** — explicit list from `CORS_ORIGINS` env var (comma-separated) **plus** a regex allowing any `https://*.vercel.app` for preview deployments. Don't tighten the regex without updating Vercel preview flows.
-5. `pyproject.toml` still lists desktop-era deps (`arcade`, `pyglet`, `pyside6`, `questionary`, `rich`) — these are unused but harmless. Safe to remove in a cleanup pass; don't add new callers.
+5. Backend deploys via **Dockerfile** at repo root (not Nixpacks). It's a slim `python:3.11-slim` image that installs via `uv sync --no-dev --frozen` and sets `MPLBACKEND=Agg` + `MPLCONFIGDIR=/tmp/matplotlib` at image-build time so matplotlib never tries GUI init in the container. `railway.toml` points at this Dockerfile.
 
 ### Frontend architecture
 
